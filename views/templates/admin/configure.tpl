@@ -1,49 +1,97 @@
-{*
-* 2007-2025 PrestaShop
-*
-* NOTICE OF LICENSE
-*
-* This source file is subject to the Academic Free License (AFL 3.0)
-* that is bundled with this package in the file LICENSE.txt.
-* It is also available through the world-wide-web at this URL:
-* http://opensource.org/licenses/afl-3.0.php
-* If you did not receive a copy of the license and are unable to
-* obtain it through the world-wide-web, please send an email
-* to license@prestashop.com so we can send you a copy immediately.
-*
-* DISCLAIMER
-*
-* Do not edit or add to this file if you wish to upgrade PrestaShop to newer
-* versions in the future. If you wish to customize PrestaShop for your
-* needs please refer to http://www.prestashop.com for more information.
-*
-*  @author    PrestaShop SA <contact@prestashop.com>
-*  @copyright 2007-2025 PrestaShop SA
-*  @license   http://opensource.org/licenses/afl-3.0.php  Academic Free License (AFL 3.0)
-*  International Registered Trademark & Property of PrestaShop SA
-*}
+{* modules/shipping_calculator/views/templates/admin/configure.tpl *}
 
 <div class="panel">
-	<h3><i class="icon icon-truck"></i> {l s='My shipping module' mod='shipping_calculator'}</h3>
-	<img src="{$module_dir|escape:'html':'UTF-8'}/logo.png" id="payment-logo" class="pull-right" />
-	<p>
-		<strong>{l s='Here is my new shipping module!' mod='shipping_calculator'}</strong><br />
-		{l s='Thanks to PrestaShop, now I have a great shipping module.' mod='shipping_calculator'}<br />
-		{l s='I can configure it using the following configuration form.' mod='shipping_calculator'}
-	</p>
-	<br />
-	<p>	
-		{l s='This module will boost your sales!' mod='shipping_calculator'}
-	</p>
+  <h3>
+    <i class="icon icon-truck"></i>
+    {l s='Shipping Calculator – Importar tarifas' mod='shipping_calculator'}
+  </h3>
+  <p>
+    {l s='Aquí puedes importar las tarifas de tus transportistas desde archivos CSV. Selecciona el carrier y el archivo correspondiente.' mod='shipping_calculator'}
+  </p>
 </div>
 
-<div class="panel">
-	<h3><i class="icon icon-tags"></i> {l s='Documentation' mod='shipping_calculator'}</h3>
-	<p>
-		&raquo; {l s='You can get a PDF documentation to configure this module' mod='shipping_calculator'} :
-		<ul>
-			<li><a href="#" target="_blank">{l s='English' mod='shipping_calculator'}</a></li>
-			<li><a href="#" target="_blank">{l s='French' mod='shipping_calculator'}</a></li>
-		</ul>
-	</p>
+<div class="row">
+
+  <div class="col-lg-6">
+    <div class="panel">
+      <h3>{l s='Importar tarifas por kg' mod='shipping_calculator'}</h3>
+
+      <form method="post" enctype="multipart/form-data" action="{$currentIndex|escape:'html':'UTF-8'}">
+        <input type="hidden" name="token" value="{$token|escape:'html':'UTF-8'}" />
+
+        <div class="form-group">
+          <label for="per_kg_id_carrier">
+            {l s='Transportista' mod='shipping_calculator'}
+          </label>
+          <select name="per_kg_id_carrier" id="per_kg_id_carrier" class="form-control">
+            <option value="">
+              -- {l s='Selecciona un transportista' mod='shipping_calculator'} --
+            </option>
+            {foreach from=$carriers item=carrier}
+              <option value="{$carrier.id_carrier|intval}">
+                {$carrier.name|escape:'html':'UTF-8'}
+              </option>
+            {/foreach}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="per_kg_csv">
+            {l s='Archivo CSV' mod='shipping_calculator'}
+          </label>
+          <input type="file" name="per_kg_csv" id="per_kg_csv" class="form-control" />
+          <p class="help-block">
+            {l s='Formato: ID DESTINO, CIUDAD, DEPARTAMENTO, TARIFA x Kg, TIEMPOS DE ENTREGA, TRANSPORTADORA' mod='shipping_calculator'}
+          </p>
+        </div>
+
+        <button type="submit" name="submitImportPerKgRates" class="btn btn-primary">
+          <i class="icon-upload"></i>
+          {l s='Importar tarifas por kg' mod='shipping_calculator'}
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="panel">
+      <h3>{l s='Importar tarifas por rangos' mod='shipping_calculator'}</h3>
+
+      <form method="post" enctype="multipart/form-data" action="{$currentIndex|escape:'html':'UTF-8'}">
+        <input type="hidden" name="token" value="{$token|escape:'html':'UTF-8'}" />
+
+        <div class="form-group">
+          <label for="range_id_carrier">
+            {l s='Transportista' mod='shipping_calculator'}
+          </label>
+          <select name="range_id_carrier" id="range_id_carrier" class="form-control">
+            <option value="">
+              -- {l s='Selecciona un transportista' mod='shipping_calculator'} --
+            </option>
+            {foreach from=$carriers item=carrier}
+              <option value="{$carrier.id_carrier|intval}">
+                {$carrier.name|escape:'html':'UTF-8'}
+              </option>
+            {/foreach}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="range_csv">
+            {l s='Archivo CSV' mod='shipping_calculator'}
+          </label>
+          <input type="file" name="range_csv" id="range_csv" class="form-control" />
+          <p class="help-block">
+            {l s='Formato: columnas de tarifas por rango (<=1, 2-3 kg, 1-60 kg, 61-120 kg, >120 kg), tiempos de entrega, paquetería, masivo, etc.' mod='shipping_calculator'}
+          </p>
+        </div>
+
+        <button type="submit" name="submitImportRangeRates" class="btn btn-primary">
+          <i class="icon-upload"></i>
+          {l s='Importar tarifas por rangos' mod='shipping_calculator'}
+        </button>
+      </form>
+    </div>
+  </div>
+
 </div>

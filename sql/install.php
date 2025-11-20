@@ -23,15 +23,63 @@
 *  @license   http://opensource.org/licenses/afl-3.0.php  Academic Free License (AFL 3.0)
 *  International Registered Trademark & Property of PrestaShop SA
 */
-$sql = array();
 
-$sql[] = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'shipping_calculator` (
-    `id_shipping_calculator` int(11) NOT NULL AUTO_INCREMENT,
-    PRIMARY KEY  (`id_shipping_calculator`)
-) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8;';
+$sql = [];
 
+/**
+ * TABLA: shipping_rate_type
+ * Define si un carrier usa tarifas POR RANGO o POR KG
+ */
+$sql[] = 'CREATE TABLE IF NOT EXISTS `'._DB_PREFIX_.'shipping_rate_type` (
+    `id_rate_type` INT(11) NOT NULL AUTO_INCREMENT,
+    `id_carrier` INT(11) NOT NULL,
+    `type` ENUM("range","per_kg") NOT NULL,
+    `active` TINYINT(1) NOT NULL DEFAULT 1,
+    PRIMARY KEY (`id_rate_type`),
+    INDEX (`id_carrier`)
+) ENGINE='._MYSQL_ENGINE_.' DEFAULT CHARSET=utf8mb4;';
+
+/**
+ * TABLA: shipping_range_rate
+ * Tarifas por rango de peso
+ */
+$sql[] = 'CREATE TABLE IF NOT EXISTS `'._DB_PREFIX_.'shipping_range_rate` (
+    `id_range_rate` INT(11) NOT NULL AUTO_INCREMENT,
+    `id_carrier` INT(11) NOT NULL,
+    `id_city` INT(11) NOT NULL,
+    `min_weight` DECIMAL(10,2) NOT NULL,
+    `max_weight` DECIMAL(10,2) NULL,
+    `delivery_time` VARCHAR(20) NULL,
+    `apply_packaging` TINYINT(1) NOT NULL DEFAULT 0,
+    `apply_massive` TINYINT(1) NOT NULL DEFAULT 0,
+    `price` DECIMAL(15,2) NOT NULL,
+    `active` TINYINT(1) NOT NULL DEFAULT 1,
+    PRIMARY KEY (`id_range_rate`),
+    INDEX (`id_carrier`),
+    INDEX (`id_city`)
+) ENGINE='._MYSQL_ENGINE_.' DEFAULT CHARSET=utf8mb4;';
+
+/**
+ * TABLA: shipping_per_kg_rate
+ * Tarifas por peso exacto (precio por kilo)
+ */
+$sql[] = 'CREATE TABLE IF NOT EXISTS `'._DB_PREFIX_.'shipping_per_kg_rate` (
+    `id_per_kg_rate` INT(11) NOT NULL AUTO_INCREMENT,
+    `id_carrier` INT(11) NOT NULL,
+    `id_city` INT(11) NOT NULL,
+    `delivery_time` VARCHAR(20) NULL,
+    `price` DECIMAL(15,2) NOT NULL,
+    `active` TINYINT(1) NOT NULL DEFAULT 1,
+    PRIMARY KEY (`id_per_kg_rate`),
+    INDEX (`id_carrier`),
+    INDEX (`id_city`)
+) ENGINE='._MYSQL_ENGINE_.' DEFAULT CHARSET=utf8mb4;';
+
+/** Ejecutar instalación */
 foreach ($sql as $query) {
-    if (Db::getInstance()->execute($query) == false) {
+    if (!Db::getInstance()->execute($query)) {
         return false;
     }
 }
+
+return true;

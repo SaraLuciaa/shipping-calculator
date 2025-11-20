@@ -1,27 +1,6 @@
 <?php
 /**
-* 2007-2025 PrestaShop
-*
-* NOTICE OF LICENSE
-*
-* This source file is subject to the Academic Free License (AFL 3.0)
-* that is bundled with this package in the file LICENSE.txt.
-* It is also available through the world-wide-web at this URL:
-* http://opensource.org/licenses/afl-3.0.php
-* If you did not receive a copy of the license and are unable to
-* obtain it through the world-wide-web, please send an email
-* to license@prestashop.com so we can send you a copy immediately.
-*
-* DISCLAIMER
-*
-* Do not edit or add to this file if you wish to upgrade PrestaShop to newer
-* versions in the future. If you wish to customize PrestaShop for your
-* needs please refer to http://www.prestashop.com for more information.
-*
-*  @author    PrestaShop SA <contact@prestashop.com>
-*  @copyright 2007-2025 PrestaShop SA
-*  @license   http://opensource.org/licenses/afl-3.0.php  Academic Free License (AFL 3.0)
-*  International Registered Trademark & Property of PrestaShop SA
+* Shipping Calculator – Versión corregida
 */
 
 if (!defined('_PS_VERSION_')) {
@@ -32,6 +11,9 @@ class Shipping_calculator extends CarrierModule
 {
     protected $config_form = false;
 
+    const RATE_TYPE_RANGE  = 'range';
+    const RATE_TYPE_PER_KG = 'per_kg';
+
     public function __construct()
     {
         $this->name = 'shipping_calculator';
@@ -40,9 +22,6 @@ class Shipping_calculator extends CarrierModule
         $this->author = 'Sara Lucia';
         $this->need_instance = 0;
 
-        /**
-         * Set $this->bootstrap to true if your module is compliant with bootstrap (PrestaShop 1.6)
-         */
         $this->bootstrap = true;
 
         parent::__construct();
@@ -56,24 +35,26 @@ class Shipping_calculator extends CarrierModule
     }
 
     /**
-     * Don't forget to create update methods if needed:
-     * http://doc.prestashop.com/display/PS16/Enabling+the+Auto-Update
+     * Install
      */
     public function install()
     {
-        if (extension_loaded('curl') == false)
-        {
-            $this->_errors[] = $this->l('You have to enable the cURL extension on your server to install this module');
+        if (!extension_loaded('curl')) {
+            $this->_errors[] = $this->l('Debes habilitar cURL en tu servidor');
             return false;
         }
 
-        $carrier = $this->addCarrier();
-        $this->addZones($carrier);
-        $this->addGroups($carrier);
-        $this->addRanges($carrier);
+        if (!parent::install()) {
+            return false;
+        }
+
+        if (!include dirname(__FILE__).'/sql/install.php') {
+            return false;
+        }
+
         Configuration::updateValue('SHIPPING_CALCULATOR_LIVE_MODE', false);
 
-        return parent::install() &&
+        return
             $this->registerHook('header') &&
             $this->registerHook('displayBackOfficeHeader') &&
             $this->registerHook('updateCarrier') &&
@@ -83,147 +64,123 @@ class Shipping_calculator extends CarrierModule
     public function uninstall()
     {
         Configuration::deleteByName('SHIPPING_CALCULATOR_LIVE_MODE');
+        
+        include dirname(__FILE__).'/sql/uninstall.php';
 
         return parent::uninstall();
     }
 
     /**
-     * Load the configuration form
+     * Backoffice
      */
     public function getContent()
     {
-        /**
-         * If values have been submitted in the form, process.
-         */
-        if (((bool)Tools::isSubmit('submitShipping_calculatorModule')) == true) {
+        $output = '';
+
+        if (Tools::isSubmit('submitShipping_calculatorModule')) {
             $this->postProcess();
+            $output .= $this->displayConfirmation($this->l('Configuración actualizada'));
         }
 
-        $this->context->smarty->assign('module_dir', $this->_path);
+        // === Import per KG ===
+        if (Tools::isSubmit('submitImportPerKgRates')) {
+            $output .= $this->handleImportPerKgRates();
+        }
 
-        $output = $this->context->smarty->fetch($this->local_path.'views/templates/admin/configure.tpl');
+        // === Import por Rangos ===
+        if (Tools::isSubmit('submitImportRangeRates')) {
+            $output .= $this->handleImportRangeRates();
+        }
 
-        return $output.$this->renderForm();
+        $carriers = Carrier::getCarriers(
+            $this->context->language->id, true, false, false, null, Carrier::ALL_CARRIERS
+        );
+
+        $this->context->smarty->assign(array(
+            'module_dir'   => $this->_path,
+            'carriers'     => $carriers,
+            'currentIndex' => $this->context->link->getAdminLink('AdminModules', false)
+                .'&configure='.$this->name.'&tab_module='.$this->tab.'&module_name='.$this->name,
+            'token'        => Tools::getAdminTokenLite('AdminModules'),
+        ));
+
+        $output .= $this->context->smarty->fetch($this->local_path.'views/templates/admin/configure.tpl');
+        $output .= $this->renderForm();
+
+        return $output;
     }
 
     /**
-     * Create the form that will be displayed in the configuration of your module.
+     * Formulario
      */
     protected function renderForm()
     {
         $helper = new HelperForm();
 
-        $helper->show_toolbar = false;
-        $helper->table = $this->table;
-        $helper->module = $this;
-        $helper->default_form_language = $this->context->language->id;
-        $helper->allow_employee_form_lang = Configuration::get('PS_BO_ALLOW_EMPLOYEE_FORM_LANG', 0);
-
-        $helper->identifier = $this->identifier;
-        $helper->submit_action = 'submitShipping_calculatorModule';
-        $helper->currentIndex = $this->context->link->getAdminLink('AdminModules', false)
+        $helper->show_toolbar   = false;
+        $helper->submit_action  = 'submitShipping_calculatorModule';
+        $helper->currentIndex   = $this->context->link->getAdminLink('AdminModules', false)
             .'&configure='.$this->name.'&tab_module='.$this->tab.'&module_name='.$this->name;
-        $helper->token = Tools::getAdminTokenLite('AdminModules');
+        $helper->token          = Tools::getAdminTokenLite('AdminModules');
 
         $helper->tpl_vars = array(
-            'fields_value' => $this->getConfigFormValues(), /* Add values for your inputs */
-            'languages' => $this->context->controller->getLanguages(),
-            'id_language' => $this->context->language->id,
+            'fields_value' => $this->getConfigFormValues(),
+            'languages'    => $this->context->controller->getLanguages(),
+            'id_language'  => $this->context->language->id,
         );
 
         return $helper->generateForm(array($this->getConfigForm()));
     }
 
-    /**
-     * Create the structure of your form.
-     */
     protected function getConfigForm()
     {
         return array(
             'form' => array(
                 'legend' => array(
-                'title' => $this->l('Settings'),
-                'icon' => 'icon-cogs',
+                    'title' => $this->l('Settings'),
+                    'icon'  => 'icon-cogs',
                 ),
                 'input' => array(
                     array(
-                        'type' => 'switch',
-                        'label' => $this->l('Live mode'),
-                        'name' => 'SHIPPING_CALCULATOR_LIVE_MODE',
+                        'type'    => 'switch',
+                        'label'   => $this->l('Live mode'),
+                        'name'    => 'SHIPPING_CALCULATOR_LIVE_MODE',
                         'is_bool' => true,
-                        'desc' => $this->l('Use this module in live mode'),
-                        'values' => array(
-                            array(
-                                'id' => 'active_on',
-                                'value' => true,
-                                'label' => $this->l('Enabled')
-                            ),
-                            array(
-                                'id' => 'active_off',
-                                'value' => false,
-                                'label' => $this->l('Disabled')
-                            )
+                        'values'  => array(
+                            array('id' => 'active_on',  'value' => true,  'label' => $this->l('Enabled')),
+                            array('id' => 'active_off', 'value' => false, 'label' => $this->l('Disabled')),
                         ),
-                    ),
-                    array(
-                        'col' => 3,
-                        'type' => 'text',
-                        'prefix' => '<i class="icon icon-envelope"></i>',
-                        'desc' => $this->l('Enter a valid email address'),
-                        'name' => 'SHIPPING_CALCULATOR_ACCOUNT_EMAIL',
-                        'label' => $this->l('Email'),
-                    ),
-                    array(
-                        'type' => 'password',
-                        'name' => 'SHIPPING_CALCULATOR_ACCOUNT_PASSWORD',
-                        'label' => $this->l('Password'),
                     ),
                 ),
                 'submit' => array(
                     'title' => $this->l('Save'),
                 ),
-            ),
+            )
         );
     }
 
-    /**
-     * Set values for the inputs.
-     */
     protected function getConfigFormValues()
     {
         return array(
-            'SHIPPING_CALCULATOR_LIVE_MODE' => Configuration::get('SHIPPING_CALCULATOR_LIVE_MODE', true),
-            'SHIPPING_CALCULATOR_ACCOUNT_EMAIL' => Configuration::get('SHIPPING_CALCULATOR_ACCOUNT_EMAIL', 'contact@prestashop.com'),
-            'SHIPPING_CALCULATOR_ACCOUNT_PASSWORD' => Configuration::get('SHIPPING_CALCULATOR_ACCOUNT_PASSWORD', null),
+            'SHIPPING_CALCULATOR_LIVE_MODE' => Configuration::get('SHIPPING_CALCULATOR_LIVE_MODE'),
         );
     }
 
-    /**
-     * Save form data.
-     */
     protected function postProcess()
     {
-        $form_values = $this->getConfigFormValues();
-
-        foreach (array_keys($form_values) as $key) {
-            Configuration::updateValue($key, Tools::getValue($key));
-        }
+        Configuration::updateValue(
+            'SHIPPING_CALCULATOR_LIVE_MODE',
+            (bool)Tools::getValue('SHIPPING_CALCULATOR_LIVE_MODE')
+        );
     }
+
+    /* ============================================================
+     * MÉTODOS OBLIGATORIOS DE CarrierModule
+     * ============================================================ */
 
     public function getOrderShippingCost($params, $shipping_cost)
     {
-        if (Context::getContext()->customer->logged == true)
-        {
-            $id_address_delivery = Context::getContext()->cart->id_address_delivery;
-            $address = new Address($id_address_delivery);
-
-            /**
-             * Send the details through the API
-             * Return the price sent by the API
-             */
-            return 10;
-        }
-
+        // Luego aquí meteremos tu lógica real de cálculo
         return $shipping_cost;
     }
 
@@ -232,96 +189,361 @@ class Shipping_calculator extends CarrierModule
         return true;
     }
 
-    protected function addCarrier()
+    /* ============================================================
+     * HELPERS TIPO DE CARRIER (RANGE / PER_KG)
+     * ============================================================ */
+
+    protected function setCarrierRateType($id_carrier, $type)
     {
-        $carrier = new Carrier();
-
-        $carrier->name = $this->l('My super carrier');
-        $carrier->is_module = true;
-        $carrier->active = 1;
-        $carrier->range_behavior = 1;
-        $carrier->need_range = 1;
-        $carrier->shipping_external = true;
-        $carrier->range_behavior = 0;
-        $carrier->external_module_name = $this->name;
-        $carrier->shipping_method = 2;
-
-        foreach (Language::getLanguages() as $lang)
-            $carrier->delay[$lang['id_lang']] = $this->l('Super fast delivery');
-
-        if ($carrier->add() == true)
-        {
-            @copy(dirname(__FILE__).'/views/img/carrier_image.jpg', _PS_SHIP_IMG_DIR_.'/'.(int)$carrier->id.'.jpg');
-            Configuration::updateValue('MYSHIPPINGMODULE_CARRIER_ID', (int)$carrier->id);
-            return $carrier;
+        $id_carrier = (int)$id_carrier;
+        if (!in_array($type, array(self::RATE_TYPE_RANGE, self::RATE_TYPE_PER_KG))) {
+            return false;
         }
 
-        return false;
+        $id_rate_type = (int)Db::getInstance()->getValue(
+            'SELECT `id_rate_type` FROM `'._DB_PREFIX_.'shipping_rate_type`
+             WHERE `id_carrier` = '.(int)$id_carrier
+        );
+
+        if ($id_rate_type) {
+            return Db::getInstance()->update(
+                'shipping_rate_type',
+                array(
+                    'type'   => pSQL($type),
+                    'active' => 1,
+                ),
+                'id_rate_type = '.(int)$id_rate_type
+            );
+        }
+
+        return Db::getInstance()->insert(
+            'shipping_rate_type',
+            array(
+                'id_carrier' => $id_carrier,
+                'type'       => pSQL($type),
+                'active'     => 1,
+            )
+        );
     }
 
-    protected function addGroups($carrier)
+    protected function getCarrierRateType($id_carrier)
     {
-        $groups_ids = array();
-        $groups = Group::getGroups(Context::getContext()->language->id);
-        foreach ($groups as $group)
-            $groups_ids[] = $group['id_group'];
-
-        $carrier->setGroups($groups_ids);
+        return Db::getInstance()->getValue(
+            'SELECT `type` FROM `'._DB_PREFIX_.'shipping_rate_type`
+             WHERE `id_carrier` = '.(int)$id_carrier.' AND `active` = 1'
+        );
     }
 
-    protected function addRanges($carrier)
+    /* ============================================================
+     *  IMPORTACIÓN ALDIA – TARIFAS POR KG
+     * ============================================================ */
+
+    protected function handleImportPerKgRates()
     {
-        $range_price = new RangePrice();
-        $range_price->id_carrier = $carrier->id;
-        $range_price->delimiter1 = '0';
-        $range_price->delimiter2 = '10000';
-        $range_price->add();
+        $id_carrier = (int)Tools::getValue('per_kg_id_carrier');
 
-        $range_weight = new RangeWeight();
-        $range_weight->id_carrier = $carrier->id;
-        $range_weight->delimiter1 = '0';
-        $range_weight->delimiter2 = '10000';
-        $range_weight->add();
+        if (!$id_carrier) {
+            return $this->displayError($this->l('Selecciona un transportista.'));
+        }
+
+        if (!isset($_FILES['per_kg_csv']) || !is_uploaded_file($_FILES['per_kg_csv']['tmp_name'])) {
+            return $this->displayError($this->l('Debes subir un archivo CSV.'));
+        }
+
+        // Borrar tarifas previas de ese carrier
+        Db::getInstance()->delete('shipping_per_kg_rate', 'id_carrier='.(int)$id_carrier);
+
+        $tmp     = $_FILES['per_kg_csv']['tmp_name'];
+        $name    = $_FILES['per_kg_csv']['name'];
+        
+        list($insert, $skip) = $this->importPerKgCsv($id_carrier, $tmp);
+
+        $this->setCarrierRateType($id_carrier, self::RATE_TYPE_PER_KG);
+
+        return $this->displayConfirmation(
+            sprintf($this->l('%d filas insertadas — %d omitidas.'), $insert, $skip)
+        );
     }
 
-    protected function addZones($carrier)
+    protected function importPerKgCsv($id_carrier, $filePath)
     {
-        $zones = Zone::getZones();
+        $h = fopen($filePath, 'r');
+        if (!$h) {
+            return array(0, 0);
+        }
 
-        foreach ($zones as $zone)
-            $carrier->addZone($zone['id_zone']);
+        $inserted = 0;
+        $skipped  = 0;
+        $first    = true;
+
+        while (($row = fgetcsv($h, 0, ';')) !== false) {
+            if (count($row) == 1) {
+                $row = str_getcsv($row[0], ',');
+            }
+
+            if ($first) {
+                $first = false;
+                continue;
+            }
+
+            if (count($row) < 4) {
+                $skipped++;
+                continue;
+            }
+
+            $city  = trim($row[1]);
+            $state = trim($row[2]);
+            $price = $this->normalizeNumber($row[3]);
+
+            $id_city = $this->getIdCityByNameAndState($city, $state);
+            if (!$id_city || $price <= 0) {
+                $skipped++;
+                continue;
+            }
+
+            Db::getInstance()->insert('shipping_per_kg_rate', array(
+                'id_carrier' => (int)$id_carrier,
+                'id_city'    => (int)$id_city,
+                'price'      => (float)$price,
+                'active'     => 1,
+            ));
+
+            $inserted++;
+        }
+
+        fclose($h);
+        return array($inserted, $skipped);
     }
 
-    /**
-    * Add the CSS & JavaScript files you want to be loaded in the BO.
-    */
+    /* ============================================================
+     * IMPORTACIÓN ENVIA – RANGOS
+     * ============================================================ */
+
+    protected function handleImportRangeRates()
+    {
+        $id_carrier = (int)Tools::getValue('range_id_carrier');
+
+        if (!$id_carrier) {
+            return $this->displayError($this->l('Selecciona un transportista.'));
+        }
+
+        if (!isset($_FILES['range_csv']) || !is_uploaded_file($_FILES['range_csv']['tmp_name'])) {
+            return $this->displayError($this->l('Debes subir un archivo CSV/XLS/XLSX.'));
+        }
+
+        Db::getInstance()->delete('shipping_range_rate', 'id_carrier='.(int)$id_carrier);
+
+        $tmp     = $_FILES['range_csv']['tmp_name'];
+        $name    = $_FILES['range_csv']['name'];
+
+        list($inserted, $summary) = $this->importRangeCsv($id_carrier, $tmp);
+
+        $this->setCarrierRateType($id_carrier, self::RATE_TYPE_RANGE);
+
+        return $this->displayConfirmation($summary);
+    }
+
+    protected function importRangeCsv($id_carrier, $filePath)
+    {
+        $h = fopen($filePath, 'r');
+        if (!$h) {
+            return array(0, 0);
+        }
+
+        // ===============================
+        //     CONTADORES DETALLADOS
+        // ===============================
+        $stats = [
+            'rows_total'          => 0,
+            'rows_empty'          => 0,
+            'rows_city_missing'   => 0,
+            'range_inserted'      => 0,
+            'range_price_zero'    => 0,
+            'range_bad_header'    => 0,
+            'range_ignored'       => 0,
+        ];
+        
+        // ---> NUEVO: arreglo para guardar ciudades omitidas
+        $omittedCities = [];
+
+        $header   = [];
+        $first    = true;
+
+        while (($row = fgetcsv($h, 0, ';')) !== false) {
+
+            // Forzar separación por coma si solo viene 1 columna
+            if (count($row) == 1) {
+                $row = str_getcsv($row[0], ',');
+            }
+
+            // Saltar filas completamente vacías
+            if (!isset($row[0]) || trim(implode('', $row)) === '') {
+                $stats['rows_empty']++;
+                continue;
+            }
+
+            if ($first) {
+                $header = array_map('strtoupper', array_map('trim', $row));
+                $first = false;
+                continue;
+            }
+
+            $stats['rows_total']++;
+
+            // Índices
+            $cityIdx  = array_search('CIUDAD', $header);
+            $stateIdx = array_search('DEPARTAMENTO', $header);
+
+            if ($cityIdx === false || $stateIdx === false ||
+                !isset($row[$cityIdx], $row[$stateIdx])) {
+
+                $stats['rows_empty']++;
+                continue;
+            }
+
+            $city  = trim($row[$cityIdx]);
+            $state = trim($row[$stateIdx]);
+
+            $id_city = $this->getIdCityByNameAndState($city, $state);
+            if (!$id_city) {
+                $stats['rows_city_missing']++;
+                // ---> NUEVO: registrar ciudad omitida
+                $omittedCities[] = "$city";
+                
+                continue;
+            }
+
+            // Procesar cada columna que sea un rango
+            foreach ($header as $colIdx => $colName) {
+
+                // Detectar encabezados RANGO
+                if (!preg_match('/^(RANGO_)?(\d+)[\-_](\d+|INF)$/', $colName, $m)) {
+                    // Este encabezado NO es un rango válido
+                    if ($colIdx > 2) { // evitar marcar ciudad/departamento como "malo"
+                        $stats['range_bad_header']++;
+                    }
+                    continue;
+                }
+
+                $min = (float)$m[2];
+                $max = ($m[3] === 'INF') ? null : (float)$m[3];
+
+                $raw = isset($row[$colIdx]) ? $row[$colIdx] : '';
+                $price = $this->normalizeNumber($raw);
+
+                if ($price <= 0) {
+                    $stats['range_price_zero']++;
+                    continue;
+                }
+
+                // Insertar rango
+                $inserted = Db::getInstance()->insert('shipping_range_rate', [
+                    'id_carrier' => (int)$id_carrier,
+                    'id_city'    => (int)$id_city,
+                    'min_weight' => $min,
+                    'max_weight' => $max,
+                    'price'      => $price,
+                    'active'     => 1,
+                ]);
+
+                if ($inserted) {
+                    $stats['range_inserted']++;
+                } else {
+                    $stats['range_ignored']++;
+                }
+            }
+        }
+
+        fclose($h);
+
+        // ===============================
+        //  RETORNAR RESUMEN PARA EL UI
+        // ===============================
+        $summary = "<b>Resumen de importación:</b><br><br>
+            ✔ Filas procesadas: <b>{$stats['rows_total']}</b><br>
+            ✔ Rangos insertados: <b>{$stats['range_inserted']}</b><br><br>
+
+            ⚠ Filas vacías/invalidas: <b>{$stats['rows_empty']}</b><br>
+            ⚠ Filas con ciudad no encontrada: <b>{$stats['rows_city_missing']}</b><br>
+            ⚠ Rangos con precio 0: <b>{$stats['range_price_zero']}</b><br>
+            ⚠ Encabezados de rango NO reconocidos: <b>{$stats['range_bad_header']}</b><br>
+            ⚠ Rangos ignorados por error de inserción: <b>{$stats['range_ignored']}</b><br>
+            Ciudades omitidas: <b>" . implode(', ', $omittedCities) . "</b><br>
+            ";
+
+        return [$stats['range_inserted'], $summary];
+    }
+
+
+    protected function logError($msg)
+    {
+        $log = dirname(__FILE__) . '/error_log.txt';
+        file_put_contents($log, '['.date('Y-m-d H:i:s')."] $msg\n", FILE_APPEND);
+    }
+    
+    protected function normalizeNumber($value)
+    {
+        $value = trim((string)$value);
+        if ($value === '') {
+            return 0;
+        }
+
+        $value = str_replace(' ', '', $value);
+
+        if (strpos($value, ',') !== false && strpos($value, '.') !== false) {
+            $value = str_replace('.', '', $value);
+            $value = str_replace(',', '.', $value);
+        } else {
+            $value = str_replace('.', '', $value);
+            $value = str_replace(',', '.', $value);
+        }
+
+        return (float)$value;
+    }
+
+    protected function getIdCityByNameAndState($city, $state)
+    {
+        $city  = pSQL(trim($city));
+        $state = pSQL(trim($state));
+
+        if (!$city) {
+            return 0;
+        }
+
+        $id_state = (int)Db::getInstance()->getValue(
+            'SELECT id_state FROM `'._DB_PREFIX_.'state` WHERE name LIKE "'.$state.'"'
+        );
+
+        if ($id_state) {
+            $id_city = (int)Db::getInstance()->getValue(
+                'SELECT id_city FROM `'._DB_PREFIX_.'city`
+                 WHERE name LIKE "'.$city.'" AND id_state = '.(int)$id_state
+            );
+            if ($id_city) {
+                return $id_city;
+            }
+        }
+
+        return (int)Db::getInstance()->getValue(
+            'SELECT id_city FROM `'._DB_PREFIX_.'city` WHERE name LIKE "'.$city.'"'
+        );
+    }
+
+    /* ============================================================
+     * Hooks
+     * ============================================================ */
+
     public function hookDisplayBackOfficeHeader()
     {
         if (Tools::getValue('configure') == $this->name) {
-            $this->context->controller->addJS($this->_path.'views/js/back.js');
             $this->context->controller->addCSS($this->_path.'views/css/back.css');
+            $this->context->controller->addJS($this->_path.'views/js/back.js');
         }
     }
 
-    /**
-     * Add the CSS & JavaScript files you want to be added on the FO.
-     */
     public function hookHeader()
     {
-        $this->context->controller->addJS($this->_path.'/views/js/front.js');
-        $this->context->controller->addCSS($this->_path.'/views/css/front.css');
-    }
-
-    public function hookUpdateCarrier($params)
-    {
-        /**
-         * Not needed since 1.5
-         * You can identify the carrier by the id_reference
-        */
-    }
-
-    public function hookActionCarrierProcess()
-    {
-        /* Place your code here. */
+        $this->context->controller->addCSS($this->_path.'views/css/front.css');
+        $this->context->controller->addJS($this->_path.'views/js/front.js');
     }
 }
