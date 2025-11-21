@@ -510,23 +510,72 @@ class Shipping_calculator extends CarrierModule
             return 0;
         }
 
+        // Buscar id_state
         $id_state = (int)Db::getInstance()->getValue(
-            'SELECT id_state FROM `'._DB_PREFIX_.'state` WHERE name LIKE "'.$state.'"'
+            'SELECT id_state FROM `'._DB_PREFIX_.'state`
+            WHERE name LIKE "'.$state.'"'
         );
 
+        // Si existe el departamento:
         if ($id_state) {
+
+            // 1. Buscar coincidencia exacta por name
             $id_city = (int)Db::getInstance()->getValue(
                 'SELECT id_city FROM `'._DB_PREFIX_.'city`
-                 WHERE name LIKE "'.$city.'" AND id_state = '.(int)$id_state
+                WHERE name = "'.$city.'" AND id_state = '.(int)$id_state
+            );
+            if ($id_city) {
+                return $id_city;
+            }
+
+            // 2. Buscar coincidencia exacta por name_alt
+            $id_city = (int)Db::getInstance()->getValue(
+                'SELECT id_city FROM `'._DB_PREFIX_.'city`
+                WHERE name_alt = "'.$city.'" AND id_state = '.(int)$id_state
+            );
+            if ($id_city) {
+                return $id_city;
+            }
+
+            // 3. Buscar coincidencia parcial por name
+            $id_city = (int)Db::getInstance()->getValue(
+                'SELECT id_city FROM `'._DB_PREFIX_.'city`
+                WHERE name LIKE "%'.$city.'%" AND id_state = '.(int)$id_state
+            );
+            if ($id_city) {
+                return $id_city;
+            }
+
+            // 4. Buscar coincidencia parcial por name_alt
+            $id_city = (int)Db::getInstance()->getValue(
+                'SELECT id_city FROM `'._DB_PREFIX_.'city`
+                WHERE name_alt LIKE "%'.$city.'%" AND id_state = '.(int)$id_state
             );
             if ($id_city) {
                 return $id_city;
             }
         }
 
-        return (int)Db::getInstance()->getValue(
-            'SELECT id_city FROM `'._DB_PREFIX_.'city` WHERE name LIKE "'.$city.'"'
+        // 5. Fallback: buscar en cualquier estado por name
+        $id_city = (int)Db::getInstance()->getValue(
+            'SELECT id_city FROM `'._DB_PREFIX_.'city`
+            WHERE name LIKE "%'.$city.'%"'
         );
+        if ($id_city) {
+            return $id_city;
+        }
+
+        // 6. Fallback: buscar en cualquier estado por name_alt
+        $id_city = (int)Db::getInstance()->getValue(
+            'SELECT id_city FROM `'._DB_PREFIX_.'city`
+            WHERE name_alt LIKE "%'.$city.'%"'
+        );
+        if ($id_city) {
+            return $id_city;
+        }
+
+        // Si no se encontró nada
+        return 0;
     }
 
     /* ============================================================
