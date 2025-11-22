@@ -250,44 +250,64 @@ class Shipping_calculator extends CarrierModule
             return $this->displayError($this->l('Debes subir un archivo CSV.'));
         }
 
-        // Borrar tarifas previas de ese carrier
+        // Borrar tarifas previas
         Db::getInstance()->delete('shipping_per_kg_rate', 'id_carrier='.(int)$id_carrier);
 
-        $tmp     = $_FILES['per_kg_csv']['tmp_name'];
-        $name    = $_FILES['per_kg_csv']['name'];
-        
-        list($insert, $skip) = $this->importPerKgCsv($id_carrier, $tmp);
+        $tmp = $_FILES['per_kg_csv']['tmp_name'];
+
+        list($inserted, $summary) = $this->importPerKgCsv($id_carrier, $tmp);
 
         $this->setCarrierRateType($id_carrier, self::RATE_TYPE_PER_KG);
 
-        return $this->displayConfirmation(
-            sprintf($this->l('%d filas insertadas — %d omitidas.'), $insert, $skip)
-        );
+        return $this->displayConfirmation($summary);
     }
 
     protected function importPerKgCsv($id_carrier, $filePath)
     {
         $h = fopen($filePath, 'r');
         if (!$h) {
-            return array(0, 0);
+            return array(0, "No se pudo abrir el archivo CSV.");
         }
 
-        $inserted = 0;
-        $skipped  = 0;
-        $first    = true;
+        // ===== CONTADORES =====
+        $stats = [
+            'rows_total'        => 0,
+            'rows_empty'        => 0,
+            'rows_city_missing' => 0,
+            'inserted'          => 0,
+            'price_zero'        => 0,
+            'ignored'           => 0,
+        ];
+
+        $omittedCities = [];
+
+        $header = [];
+        $first = true;
 
         while (($row = fgetcsv($h, 0, ';')) !== false) {
+
+            // compatibilidad coma
             if (count($row) == 1) {
                 $row = str_getcsv($row[0], ',');
             }
 
+            // Filas vacías
+            if (!isset($row[0]) || trim(implode('', $row)) === '') {
+                $stats['rows_empty']++;
+                continue;
+            }
+
             if ($first) {
+                $header = array_map('strtoupper', array_map('trim', $row));
                 $first = false;
                 continue;
             }
 
+            $stats['rows_total']++;
+
+            // Se espera: ID | CIUDAD | DEPARTAMENTO | PRECIO
             if (count($row) < 4) {
-                $skipped++;
+                $stats['ignored']++;
                 continue;
             }
 
@@ -295,25 +315,53 @@ class Shipping_calculator extends CarrierModule
             $state = trim($row[2]);
             $price = $this->normalizeNumber($row[3]);
 
+            // ciudad
             $id_city = $this->getIdCityByNameAndState($city, $state);
-            if (!$id_city || $price <= 0) {
-                $skipped++;
+            if (!$id_city) {
+                $stats['rows_city_missing']++;
+                $omittedCities[] = $city;
                 continue;
             }
 
-            Db::getInstance()->insert('shipping_per_kg_rate', array(
+            // precio inválido
+            if ($price <= 0) {
+                $stats['price_zero']++;
+                continue;
+            }
+
+            // insertar
+            $ok = Db::getInstance()->insert('shipping_per_kg_rate', [
                 'id_carrier' => (int)$id_carrier,
                 'id_city'    => (int)$id_city,
                 'price'      => (float)$price,
                 'active'     => 1,
-            ));
+            ]);
 
-            $inserted++;
+            if ($ok) {
+                $stats['inserted']++;
+            } else {
+                $stats['ignored']++;
+            }
         }
 
         fclose($h);
-        return array($inserted, $skipped);
+
+        // ===== RESUMEN HTML =====
+        $summary = "<b>Resumen de importación (por kilo):</b><br><br>
+            ✔ Filas procesadas: <b>{$stats['rows_total']}</b><br>
+            ✔ Tarifas insertadas: <b>{$stats['inserted']}</b><br><br>
+
+            ⚠ Filas vacías/invalidas: <b>{$stats['rows_empty']}</b><br>
+            ⚠ Filas con ciudad no encontrada: <b>{$stats['rows_city_missing']}</b><br>
+            ⚠ Precios en cero/no válidos: <b>{$stats['price_zero']}</b><br>
+            ⚠ Filas ignoradas por error: <b>{$stats['ignored']}</b><br><br>
+
+            <b>Ciudades omitidas:</b> " . implode(', ', $omittedCities) . "<br>
+        ";
+
+        return [$stats['inserted'], $summary];
     }
+
 
     /* ============================================================
      * IMPORTACIÓN ENVIA – RANGOS
