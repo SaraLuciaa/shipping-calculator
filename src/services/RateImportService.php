@@ -6,17 +6,20 @@ class RateImportService
     private $norm;
     private $cityLookup;
     private $carrierType;
+    private $carrierRegistry;
 
     public function __construct(
         CsvReader $csv,
         NormalizerService $norm,
         CityLookupService $cityLookup,
-        CarrierRateTypeService $carrierType
+        CarrierRateTypeService $carrierType,
+        CarrierRegistryService $carrierRegistry
     ) {
         $this->csv         = $csv;
         $this->norm        = $norm;
         $this->cityLookup  = $cityLookup;
         $this->carrierType = $carrierType;
+        $this->carrierRegistry = $carrierRegistry;
     }
 
     /**
@@ -27,12 +30,12 @@ class RateImportService
         $id_carrier = (int)$id_carrier;
 
         // 1. Validar que esté registrado
-        if (!$this->carrierType->isRegistered($id_carrier)) {
+        if (!$this->carrierRegistry->isRegistered($id_carrier)) {
             throw new Exception("Este carrier no está registrado en el módulo.");
         }
 
         // 2. Consultar su tipo registrado
-        $expectedType = $this->carrierType->getType($id_carrier);
+        $expectedType = $this->carrierRegistry->getType($id_carrier);
 
         if ($expectedType === CarrierRateTypeService::RATE_TYPE_PER_KG) {
             return $this->importPerKg($id_carrier, $filePath);
@@ -203,4 +206,41 @@ class RateImportService
 
         return ['inserted' => $stats['range_inserted'], 'summary' => $summary, 'stats' => $stats];
     }
+
+    private function buildSummaryHtml($label, array $stats, array $omittedCities)
+    {
+        $html  = "<b>Resumen de importación ({$label}):</b><br><br>";
+
+        // Total procesadas
+        $html .= "✔ Filas procesadas: <b>".($stats['rows_total'] ?? 0)."</b><br>";
+
+        // Detectamos si es importación por kg o por rangos
+        $isKg = isset($stats['inserted']);          // per kg
+        $isRange = isset($stats['range_inserted']); // rangos
+
+        if ($isKg) {
+            $html .= "✔ Tarifas insertadas: <b>{$stats['inserted']}</b><br><br>";
+
+            $html .= "⚠ Ciudades no encontradas: <b>{$stats['rows_city_missing']}</b><br>";
+            $html .= "⚠ Precios inválidos/cero: <b>{$stats['price_zero']}</b><br>";
+            $html .= "⚠ Filas ignoradas: <b>{$stats['ignored']}</b><br><br>";
+        }
+
+        if ($isRange) {
+            $html .= "✔ Rangos insertados: <b>{$stats['range_inserted']}</b><br><br>";
+
+            $html .= "⚠ Ciudades no encontradas: <b>{$stats['rows_city_missing']}</b><br>";
+            $html .= "⚠ Rangos con precio cero: <b>{$stats['range_price_zero']}</b><br>";
+            $html .= "⚠ Encabezados no válidos: <b>{$stats['range_bad_header']}</b><br>";
+            $html .= "⚠ Rangos ignorados: <b>{$stats['range_ignored']}</b><br><br>";
+        }
+
+        // Ciudades omitidas
+        $html .= "<b>Ciudades omitidas:</b> ";
+        $html .= empty($omittedCities) ? "Ninguna" : implode(', ', $omittedCities);
+        $html .= "<br>";
+
+        return $html;
+    }
+
 }

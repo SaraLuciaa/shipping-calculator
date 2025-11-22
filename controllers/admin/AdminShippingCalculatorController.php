@@ -5,6 +5,7 @@ require_once _PS_MODULE_DIR_.'shipping_calculator/src/services/NormalizerService
 require_once _PS_MODULE_DIR_.'shipping_calculator/src/services/CityLookupService.php';
 require_once _PS_MODULE_DIR_.'shipping_calculator/src/services/CarrierRateTypeService.php';
 require_once _PS_MODULE_DIR_.'shipping_calculator/src/services/RateImportService.php';
+require_once _PS_MODULE_DIR_.'shipping_calculator/src/services/CarrierRegistryService.php';
 
 class AdminShippingCalculatorController extends ModuleAdminController
 {
@@ -73,7 +74,8 @@ class AdminShippingCalculatorController extends ModuleAdminController
                     new CsvReader(),
                     new NormalizerService(),
                     new CityLookupService(),
-                    new CarrierRateTypeService()
+                    new CarrierRateTypeService(),
+                    new CarrierRegistryService()
                 );
 
                 // *** IMPORTANTE ***

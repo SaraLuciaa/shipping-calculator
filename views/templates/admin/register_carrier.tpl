@@ -18,7 +18,7 @@
     </select>
   </div>
 
-  <button type="submit" name="submitRegisterCarrier" class="btn btn-success">
+  <button type="submit" name="submitRegisterCarrier" class="btn btn-primary">
     Registrar Transportista
   </button>
 
