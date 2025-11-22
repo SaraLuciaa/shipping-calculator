@@ -17,8 +17,8 @@ class AdminShippingCalculatorController extends ModuleAdminController
     public function postProcess()
     {
         if (Tools::isSubmit('submitImportRates')) {
+
             $idCarrier = (int)Tools::getValue('id_carrier');
-            $rateType  = Tools::getValue('rate_type');
 
             if (!$idCarrier) {
                 $this->errors[] = "Debes seleccionar un transportista.";
@@ -40,7 +40,9 @@ class AdminShippingCalculatorController extends ModuleAdminController
                     new CarrierRateTypeService()
                 );
 
-                $result = $importer->import($idCarrier, $rateType, $filePath);
+                // *** IMPORTANTE ***
+                // Ahora el importador detecta automáticamente el tipo según el carrier
+                $result = $importer->import($idCarrier, $filePath);
 
                 $this->confirmations[] = $result['summary'];
 
@@ -52,7 +54,15 @@ class AdminShippingCalculatorController extends ModuleAdminController
 
     public function renderList()
     {
-        $carriers = Carrier::getCarriers(
+        // carriers registrados en shipping_rate_type
+        $registered = Db::getInstance()->executeS("
+            SELECT crt.id_carrier, c.name
+            FROM "._DB_PREFIX_."shipping_rate_type crt
+            LEFT JOIN "._DB_PREFIX_."carrier c ON c.id_carrier = crt.id_carrier
+            WHERE crt.active = 1
+        ");
+
+        $allCarriers = Carrier::getCarriers(
             $this->context->language->id,
             true,
             false,
@@ -62,7 +72,8 @@ class AdminShippingCalculatorController extends ModuleAdminController
         );
 
         $this->context->smarty->assign([
-            'carriers' => $carriers,
+            'registered_carriers' => $registered,
+            'carriers_all' => $allCarriers,
             'token' => $this->token,
             'currentIndex' => self::$currentIndex
         ]);
