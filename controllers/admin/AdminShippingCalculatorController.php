@@ -16,6 +16,42 @@ class AdminShippingCalculatorController extends ModuleAdminController
 
     public function postProcess()
     {
+        if (Tools::isSubmit('submitRegisterCarrier')) {
+            $idCarrier = (int)Tools::getValue('id_carrier');
+            $rateType = Tools::getValue('rate_type');
+
+            if (!$idCarrier) {
+                $this->errors[] = "Debes seleccionar un transportista.";
+                return;
+            }
+
+            if (!$rateType) {
+                $this->errors[] = "Debes seleccionar un tipo de tarifa.";
+                return;
+            }
+
+            try {
+                // Verificar si el carrier ya está registrado
+                if (CarrierRegistryService::isRegistered($idCarrier)) {
+                    // Actualizar
+                    Db::getInstance()->update('shipping_rate_type', [
+                        'type' => pSQL($rateType),
+                        'active' => 1
+                    ], 'id_carrier = '.(int)$idCarrier);
+                    $this->confirmations[] = "Transportista actualizado correctamente.";
+                } else {
+                    // Insertar usando el servicio
+                    if (CarrierRegistryService::registerCarrier($idCarrier, $rateType)) {
+                        $this->confirmations[] = "Transportista registrado correctamente.";
+                    } else {
+                        $this->errors[] = "No se pudo registrar el transportista.";
+                    }
+                }
+            } catch (Exception $e) {
+                $this->errors[] = "Error al registrar transportista: ".$e->getMessage();
+            }
+        }
+
         if (Tools::isSubmit('submitImportRates')) {
 
             $idCarrier = (int)Tools::getValue('id_carrier');
