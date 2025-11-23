@@ -2,6 +2,17 @@
 
 class CarrierRegistryService
 {
+
+    public static function getAllRegistered()
+    {
+        return Db::getInstance()->executeS(
+            'SELECT crt.id_carrier, c.name, crt.type
+            FROM '._DB_PREFIX_.'shipping_rate_type crt
+            JOIN '._DB_PREFIX_.'carrier c ON crt.id_carrier = c.id_carrier
+            WHERE crt.active = 1'
+        );
+    }
+
     public static function isRegistered($id_carrier)
     {
         return (bool) Db::getInstance()->getValue(

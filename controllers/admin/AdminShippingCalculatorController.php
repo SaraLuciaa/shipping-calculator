@@ -6,9 +6,14 @@ require_once _PS_MODULE_DIR_.'shipping_calculator/src/services/CityLookupService
 require_once _PS_MODULE_DIR_.'shipping_calculator/src/services/CarrierRateTypeService.php';
 require_once _PS_MODULE_DIR_.'shipping_calculator/src/services/RateImportService.php';
 require_once _PS_MODULE_DIR_.'shipping_calculator/src/services/CarrierRegistryService.php';
+require_once _PS_MODULE_DIR_.'shipping_calculator/src/services/ShippingQuoteService.php';
+require_once _PS_MODULE_DIR_.'shipping_calculator/src/services/WeightCalculatorService.php';
 
 class AdminShippingCalculatorController extends ModuleAdminController
 {
+    private $activePanel = 'panel-carriers';
+    private $quotes = [];
+
     public function __construct()
     {
         $this->bootstrap = true;
@@ -17,43 +22,52 @@ class AdminShippingCalculatorController extends ModuleAdminController
 
     public function postProcess()
     {
+        /* ========================================================
+         * REGISTRAR TRANSPORTISTA
+         * ======================================================== */
         if (Tools::isSubmit('submitRegisterCarrier')) {
+
+            $this->activePanel = 'panel-carriers';
+
             $idCarrier = (int)Tools::getValue('id_carrier');
-            $rateType = Tools::getValue('rate_type');
+            $rateType  = Tools::getValue('rate_type');
 
             if (!$idCarrier) {
                 $this->errors[] = "Debes seleccionar un transportista.";
                 return;
             }
-
             if (!$rateType) {
                 $this->errors[] = "Debes seleccionar un tipo de tarifa.";
                 return;
             }
 
             try {
-                // Verificar si el carrier ya está registrado
-                if (CarrierRegistryService::isRegistered($idCarrier)) {
-                    // Actualizar
-                    Db::getInstance()->update('shipping_rate_type', [
-                        'type' => pSQL($rateType),
-                        'active' => 1
-                    ], 'id_carrier = '.(int)$idCarrier);
-                    $this->confirmations[] = "Transportista actualizado correctamente.";
+                $registry = new CarrierRegistryService();
+
+                if ($registry->isRegistered($idCarrier)) {
+                    Db::getInstance()->update(
+                        'shipping_rate_type',
+                        ['type' => pSQL($rateType), 'active' => 1],
+                        'id_carrier = '.(int)$idCarrier
+                    );
+
+                    $this->confirmations[] = "Transportista actualizado.";
                 } else {
-                    // Insertar usando el servicio
-                    if (CarrierRegistryService::registerCarrier($idCarrier, $rateType)) {
-                        $this->confirmations[] = "Transportista registrado correctamente.";
-                    } else {
-                        $this->errors[] = "No se pudo registrar el transportista.";
-                    }
+                    $registry->registerCarrier($idCarrier, $rateType);
+                    $this->confirmations[] = "Transportista registrado correctamente.";
                 }
+
             } catch (Exception $e) {
                 $this->errors[] = "Error al registrar transportista: ".$e->getMessage();
             }
         }
 
+        /* ========================================================
+         * IMPORTAR TARIFAS
+         * ======================================================== */
         if (Tools::isSubmit('submitImportRates')) {
+
+            $this->activePanel = 'panel-import';
 
             $idCarrier = (int)Tools::getValue('id_carrier');
 
@@ -78,8 +92,6 @@ class AdminShippingCalculatorController extends ModuleAdminController
                     new CarrierRegistryService()
                 );
 
-                // *** IMPORTANTE ***
-                // Ahora el importador detecta automáticamente el tipo según el carrier
                 $result = $importer->import($idCarrier, $filePath);
 
                 $this->confirmations[] = $result['summary'];
@@ -88,13 +100,68 @@ class AdminShippingCalculatorController extends ModuleAdminController
                 $this->errors[] = "Error durante la importación: ".$e->getMessage();
             }
         }
+
+        /* ========================================================
+         * COTIZADOR DE ENVÍOS
+         * ======================================================== */
+        if (Tools::isSubmit('submitQuote')) {
+            $this->activePanel = 'panel-quote';
+
+            $id_product = (int)Tools::getValue('id_product');
+            $id_city    = (int)Tools::getValue('id_city');
+            $qty        = max(1, (int)Tools::getValue('qty'));
+
+            if (!$id_product || !$id_city) {
+                $this->errors[] = "Selecciona producto y ciudad.";
+                return;
+            }
+
+            try {
+                $service = new ShippingQuoteService(
+                    new CarrierRegistryService(),
+                    new WeightCalculatorService()
+                );
+
+                $this->quotes = $service->quote($id_product, $id_city, $qty);
+
+                // Para mostrar resumen en la vista:
+                $selectedProduct = Db::getInstance()->getRow("
+                    SELECT id_product, name
+                    FROM "._DB_PREFIX_."product_lang
+                    WHERE id_product=".(int)$id_product."
+                    AND id_lang=".(int)$this->context->language->id."
+                ");
+
+                $selectedCity = Db::getInstance()->getRow("
+                    SELECT c.id_city, c.name, s.name AS state
+                    FROM "._DB_PREFIX_."city c
+                    LEFT JOIN "._DB_PREFIX_."state s ON s.id_state=c.id_state
+                    WHERE c.id_city=".(int)$id_city."
+                ");
+
+                $this->context->smarty->assign([
+                    'selected_product' => $selectedProduct,
+                    'selected_city'    => $selectedCity,
+                    'selected_qty'     => $qty,
+                ]);
+
+                $this->confirmations[] = $this->quotes
+                    ? "Cotización realizada correctamente."
+                    : "No se encontraron tarifas disponibles para la cotización.";
+
+            } catch (Exception $e) {
+                $this->errors[] = "Error al cotizar: ".$e->getMessage();
+            }
+        }
     }
 
+    /* ============================================================
+     * RENDER LIST
+     * ============================================================ */
     public function renderList()
     {
-        // carriers registrados en shipping_rate_type
         $registered = Db::getInstance()->executeS("
-            SELECT crt.id_carrier, c.name
+            SELECT crt.id_carrier, crt.type, c.name
             FROM "._DB_PREFIX_."shipping_rate_type crt
             LEFT JOIN "._DB_PREFIX_."carrier c ON c.id_carrier = crt.id_carrier
             WHERE crt.active = 1
@@ -109,11 +176,30 @@ class AdminShippingCalculatorController extends ModuleAdminController
             Carrier::ALL_CARRIERS
         );
 
+        $products = Db::getInstance()->executeS("
+            SELECT id_product, name
+            FROM "._DB_PREFIX_."product_lang
+            WHERE id_lang = ".(int)$this->context->language->id."
+            ORDER BY name ASC
+        ");
+
+        $cities = Db::getInstance()->executeS("
+            SELECT c.id_city, c.name, s.name AS state
+            FROM "._DB_PREFIX_."city c
+            LEFT JOIN "._DB_PREFIX_."state s ON s.id_state = c.id_state
+            WHERE c.active = 1
+            ORDER BY c.name ASC
+        ");
+
         $this->context->smarty->assign([
             'registered_carriers' => $registered,
-            'carriers_all' => $allCarriers,
-            'token' => $this->token,
-            'currentIndex' => self::$currentIndex
+            'carriers_all'       => $allCarriers,
+            'products'           => $products,
+            'cities'             => $cities,
+            'quotes'             => $this->quotes,
+            'active_panel'       => $this->activePanel,
+            'token'              => $this->token,
+            'currentIndex'       => self::$currentIndex,
         ]);
 
         return $this->context->smarty->fetch(

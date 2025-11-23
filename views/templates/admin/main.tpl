@@ -2,15 +2,27 @@
   <div class="col-md-2">
     <div class="list-group">
 
-      <a href="#" class="list-group-item active" data-panel="panel-carriers">
+      <a href="#"
+         class="list-group-item {if $active_panel=='panel-carriers'}active{/if}"
+         data-panel="panel-carriers">
         <i class="icon-truck"></i> Registrar Transportista
       </a>
-      
-      <a href="#" class="list-group-item" data-panel="panel-import">
+
+      <a href="#"
+         class="list-group-item {if $active_panel=='panel-import'}active{/if}"
+         data-panel="panel-import">
         <i class="icon-upload"></i> Importar Tarifas
       </a>
 
-      <a href="#" class="list-group-item" data-panel="panel-help">
+      <a href="#"
+         class="list-group-item {if $active_panel=='panel-quote'}active{/if}"
+         data-panel="panel-quote">
+        <i class="icon-calculator"></i> Cotizador de Envíos
+      </a>
+
+      <a href="#"
+         class="list-group-item {if $active_panel=='panel-help'}active{/if}"
+         data-panel="panel-help">
         <i class="icon-info-circle"></i> Ayuda
       </a>
 
@@ -19,41 +31,58 @@
 
   <div class="col-md-9">
 
-    <div id="panel-import" class="panel panel-default panel-body active-panel">
+    <!-- PANEL: IMPORTAR TARIFAS -->
+    <div id="panel-import"
+         class="panel panel-default panel-body"
+         style="{if $active_panel=='panel-import'}display:block;{else}display:none;{/if}">
       {include file="./import_rates.tpl"}
     </div>
 
-    <div id="panel-carriers" class="panel panel-default panel-body" style="display:none;">
+    <!-- PANEL: REGISTRAR TRANSPORTISTA -->
+    <div id="panel-carriers"
+         class="panel panel-default panel-body"
+         style="{if $active_panel=='panel-carriers'}display:block;{else}display:none;{/if}">
       {include file="./register_carrier.tpl"}
     </div>
 
-    <div id="panel-help" class="panel panel-default panel-body" style="display:none;">
+    <!-- PANEL: COTIZADOR -->
+    <div id="panel-quote"
+         class="panel panel-default panel-body"
+         style="{if $active_panel=='panel-quote'}display:block;{else}display:none;{/if}">
+      {include file="./quote.tpl"}
+    </div>
+
+    <!-- PANEL: AYUDA -->
+    <div id="panel-help"
+         class="panel panel-default panel-body"
+         style="{if $active_panel=='panel-help'}display:block;{else}display:none;{/if}">
       {include file="./help.tpl"}
     </div>
 
   </div>
 </div>
 
+
 <script>
+// === Control de pestañas en tiempo real (clic del usuario) ===
 document.querySelectorAll('.list-group-item').forEach(item => {
   item.addEventListener('click', function(e) {
     e.preventDefault();
 
-    // cambiar activo del menú
+    // Quitar activo del menú
     document.querySelectorAll('.list-group-item').forEach(i => i.classList.remove('active'));
     this.classList.add('active');
 
+    // Panel a mostrar
     let target = this.getAttribute('data-panel');
 
-    // ocultar todos
+    // Ocultar todos los paneles
     document.querySelectorAll('.panel.panel-default.panel-body').forEach(p => {
       p.style.display = 'none';
-      p.classList.remove('active-panel');
     });
 
-    // mostrar seleccionado
+    // Mostrar panel seleccionado
     document.getElementById(target).style.display = 'block';
-    document.getElementById(target).classList.add('active-panel');
   });
 });
 </script>
