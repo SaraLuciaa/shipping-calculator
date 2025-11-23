@@ -1,5 +1,5 @@
 <div class="form-group">
-    <label><strong>Tipo de embalaje</strong></label>
+    <h2><strong>Tipo de embalaje</strong></h2>
 
     <select name="shipping_is_grouped" class="form-control">
         <option value="">-- Selecciona --</option>
