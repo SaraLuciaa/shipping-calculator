@@ -1,6 +1,6 @@
 <?php
 /**
- * Shipping Calculator – Módulo limpio
+ * Shipping Calculator – Módulo limpio y completo
  */
 
 if (!defined('_PS_VERSION_')) {
@@ -20,9 +20,9 @@ class Shipping_calculator extends CarrierModule
         parent::__construct();
 
         $this->displayName = $this->l('Shipping Calculator');
-        $this->description = $this->l('Automatiza el cálculo de tarifas de envío y gestiona las reglas logísticas.');
-        $this->confirmUninstall = $this->l('¿Seguro que deseas desinstalar Shipping Calculator?');
+        $this->description = $this->l('Automatiza el cálculo de tarifas de envío y gestiona reglas logísticas por producto y transportista.');
 
+        $this->confirmUninstall = $this->l('¿Seguro que deseas desinstalar este módulo?');
         $this->ps_versions_compliancy = ['min' => '1.6', 'max' => '9.0'];
     }
 
@@ -31,11 +31,6 @@ class Shipping_calculator extends CarrierModule
      */
     public function install()
     {
-        if (!extension_loaded('curl')) {
-            $this->_errors[] = $this->l('Debes habilitar cURL en el servidor.');
-            return false;
-        }
-
         if (!parent::install()) {
             return false;
         }
@@ -45,15 +40,15 @@ class Shipping_calculator extends CarrierModule
             return false;
         }
 
-        // Valor por defecto
         Configuration::updateValue('SHIPPING_CALCULATOR_LIVE_MODE', false);
 
-        // Registrar hooks necesarios
         return
             $this->registerHook('displayBackOfficeHeader') &&
             $this->registerHook('header') &&
             $this->registerHook('updateCarrier') &&
-            $this->registerHook('actionCarrierProcess');
+            $this->registerHook('actionCarrierProcess') &&
+            $this->registerHook('displayAdminProductsMainStepLeftColumnBottom') && // ⬅ Campo en Transporte
+            $this->registerHook('actionProductSave'); // ⬅ Guarda el valor
     }
 
     /**
@@ -63,15 +58,13 @@ class Shipping_calculator extends CarrierModule
     {
         Configuration::deleteByName('SHIPPING_CALCULATOR_LIVE_MODE');
 
-        // Eliminar tablas
         include dirname(__FILE__) . '/sql/uninstall.php';
 
         return parent::uninstall();
     }
 
     /**
-     * Backoffice Menu
-     * Redirige al nuevo Admin Controller
+     * Redirige al nuevo controlador del módulo
      */
     public function getContent()
     {
@@ -81,7 +74,7 @@ class Shipping_calculator extends CarrierModule
     }
 
     /* ============================================================
-     * Hooks
+     * Hooks de Backoffice
      * ============================================================ */
 
     public function hookDisplayBackOfficeHeader()
@@ -99,7 +92,63 @@ class Shipping_calculator extends CarrierModule
     }
 
     /* ============================================================
-     * Métodos obligatorios pero NO usados (cálculo real va en servicios)
+     * MOSTRAR el campo “Tipo de embalaje” en pestaña Transporte
+     * ============================================================ */
+    public function hookDisplayAdminProductsMainStepLeftColumnBottom($params)
+    {
+        $id_product = (int)$params['id_product'];
+
+        // cargar valor actual
+        $row = Db::getInstance()->getRow("
+            SELECT is_grouped
+            FROM "._DB_PREFIX_."shipping_product
+            WHERE id_product = $id_product
+        ");
+
+        $is_grouped = $row ? (string)$row['is_grouped'] : '';
+
+        $this->context->smarty->assign([
+            'is_grouped' => $is_grouped,
+        ]);
+
+        return $this->fetch('module:shipping_calculator/views/templates/hook/admin_product_transport.tpl');
+    }
+
+    /* ============================================================
+     * GUARDAR “Tipo de embalaje” al guardar producto
+     * ============================================================ */
+    public function hookActionProductSave($params)
+    {
+        $id_product = (int)$params['id_product'];
+
+        $is_grouped = Tools::getValue('shipping_is_grouped');
+        if ($is_grouped === '') {
+            $is_grouped = null;
+        }
+
+        $exists = Db::getInstance()->getValue("
+            SELECT id_shipping_product
+            FROM "._DB_PREFIX_."shipping_product
+            WHERE id_product = $id_product
+        ");
+
+        if ($exists) {
+            Db::getInstance()->update('shipping_product', [
+                'is_grouped' => $is_grouped,
+                'date_upd'   => date('Y-m-d H:i:s'),
+            ], "id_product = $id_product");
+        } else {
+            Db::getInstance()->insert('shipping_product', [
+                'id_product' => $id_product,
+                'is_grouped' => $is_grouped,
+                'date_add'   => date('Y-m-d H:i:s'),
+                'date_upd'   => date('Y-m-d H:i:s'),
+            ]);
+        }
+    }
+
+    /* ============================================================
+     * Métodos obligatorios pero NO usados
      * ============================================================ */
 
     public function getOrderShippingCost($params, $shipping_cost)

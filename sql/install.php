@@ -75,6 +75,19 @@ $sql[] = 'CREATE TABLE IF NOT EXISTS `'._DB_PREFIX_.'shipping_per_kg_rate` (
     INDEX (`id_city`)
 ) ENGINE='._MYSQL_ENGINE_.' DEFAULT CHARSET=utf8mb4;';
 
+/**
+ * TABLA: shipping_product
+ * Define si un producto usa agrupación de peso para el cálculo de envío
+ */
+$sql[] = 'CREATE TABLE IF NOT EXISTS `'._DB_PREFIX_.'shipping_product` (
+    `id_shipping_product` INT AUTO_INCREMENT PRIMARY KEY,
+    `id_product` INT NOT NULL,
+    `is_grouped` TINYINT(1) NOT NULL DEFAULT 0,
+    `date_add` DATETIME NULL,
+    `date_upd` DATETIME NULL,
+    UNIQUE KEY (`id_product`)
+) ENGINE='._MYSQL_ENGINE_.' DEFAULT CHARSET=utf8mb4;';
+
 /** Ejecutar instalación */
 foreach ($sql as $query) {
     if (!Db::getInstance()->execute($query)) {
