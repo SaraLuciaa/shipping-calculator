@@ -91,23 +91,16 @@ $sql[] = 'CREATE TABLE IF NOT EXISTS `'._DB_PREFIX_.'shipping_product` (
 $sql[] = 'CREATE TABLE IF NOT EXISTS `'._DB_PREFIX_.'shipping_config` (
     `id_config` INT(11) NOT NULL AUTO_INCREMENT,
     `id_carrier` INT(11) NULL DEFAULT NULL,
-    `category` INT(11) NOT NULL,
+    `name` VARCHAR(100) NOT NULL,
     
     `value_number` DECIMAL(15,3) NULL,
     `value_text` VARCHAR(255) NULL,
     `unit` VARCHAR(20) NULL,
-    
-    `description` TEXT NULL,
-    
+        
     `date_add` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
     `date_upd` DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (`id_config`)
-) ENGINE='._MYSQL_ENGINE_.' DEFAULT CHARSET=utf8mb4;';
-
-$sql[] = 'CREATE TABLE IF NOT EXISTS `'._DB_PREFIX_.'shipping_config_category` (
-    `id_config_category` INT(11) NOT NULL AUTO_INCREMENT,
-    `category_name` VARCHAR(50) NOT NULL,
 ) ENGINE='._MYSQL_ENGINE_.' DEFAULT CHARSET=utf8mb4;';
 
 /** Ejecutar instalación */

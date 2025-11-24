@@ -39,10 +39,6 @@ class ShippingQuoteService
         $p_height = (float)$product->height;         // cm
         $p_length = (float)$product->depth;          // cm
 
-        // volumétrico por separado (regla estándar por ahora)
-        $volWeight   = $this->weightCalc->volumetricWeight($p_length, $p_width, $p_height) * $qty;
-        $billable    = $this->weightCalc->billableWeight($p_weight, $volWeight);
-
         // --------------- 1. carriers con cobertura -----------------
         $carriersWithCoverage = $this->getCarriersWithCityCoverage($id_city);
 
@@ -54,9 +50,26 @@ class ShippingQuoteService
         $quotes = [];
 
         foreach ($carriersWithCoverage as $carrier) {
-
+            
             $id_carrier = (int)$carrier['id_carrier'];
             $type       = $carrier['type'];
+
+            $kgVol = Db::getInstance()->getRow("
+                SELECT value_number
+                FROM "._DB_PREFIX_."shipping_config
+                WHERE name = 'Peso volumetrico'
+                  AND id_carrier = ".(int)$id_carrier."
+            ");
+
+            if (!$kgVol || !isset($kgVol['value_number'])) {
+                $kgVol = ['value_number' => 5000];
+            } else {
+                $kgVol['value_number'] = (int)$kgVol['value_number'];
+            }
+
+            // volumétrico por separado (regla estándar por ahora)
+            $volWeight   = $this->weightCalc->volumetricWeight($p_length, $p_width, $p_height, $kgVol['value_number']) * $qty;
+            $billable    = $this->weightCalc->billableWeight($p_weight, $volWeight);
 
             if ($type === CarrierRateTypeService::RATE_TYPE_PER_KG) {
                 $price = $this->calculatePerKg($id_carrier, $id_city, $billable);
@@ -154,12 +167,49 @@ class ShippingQuoteService
               AND id_city = ".(int)$id_city."
               AND active = 1
               AND min_weight <= ".(float)$weight."
-              AND (max_weight IS NULL OR max_weight >= ".(float)$weight.")
+              AND (max_weight = 0 OR max_weight >= ".(float)$weight.")
             ORDER BY min_weight DESC
         ");
 
         if (!$row) return null;
 
         return (float)$row['price'];
+    }
+
+    /**
+     * Imprime o devuelve un texto con el listado de quotes.
+     * - $quotes: arreglo tal como lo retorna `quote()`.
+     * - $echo: si es true hace echo del resultado; si no, devuelve el string.
+     *
+     * Ejemplo de uso:
+     *   $quotes = $service->quote($id_product, $id_city);
+     *   $service->printQuotes($quotes); // imprime
+     */
+    public function printQuotes(array $quotes, $echo = true)
+    {
+        $lines = [];
+        if (empty($quotes)) {
+            $lines[] = 'No se encontraron cotizaciones.';
+        } else {
+            foreach ($quotes as $q) {
+                $lines[] = sprintf(
+                    'Carrier: %s | Type: %s | Price: %.2f | Weight real: %.3f kg | Vol: %.3f kg | Billable: %.3f kg',
+                    isset($q['carrier']) ? $q['carrier'] : 'N/A',
+                    isset($q['type']) ? $q['type'] : 'N/A',
+                    isset($q['price']) ? (float)$q['price'] : 0.0,
+                    isset($q['weight_real']) ? (float)$q['weight_real'] : 0.0,
+                    isset($q['weight_vol']) ? (float)$q['weight_vol'] : 0.0,
+                    isset($q['weight_billable']) ? (float)$q['weight_billable'] : 0.0
+                );
+            }
+        }
+
+        $output = implode(PHP_EOL, $lines);
+
+        if ($echo) {
+            echo $output;
+        }
+
+        return $output;
     }
 }
