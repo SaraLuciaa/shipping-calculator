@@ -32,6 +32,7 @@
 
 $sql = array();
 
+$sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_config_carriers`;';
 $sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_product`;';
 $sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_rate_type`;';
 $sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_per_kg_rate`;';
