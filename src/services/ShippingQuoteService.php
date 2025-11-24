@@ -175,41 +175,4 @@ class ShippingQuoteService
 
         return (float)$row['price'];
     }
-
-    /**
-     * Imprime o devuelve un texto con el listado de quotes.
-     * - $quotes: arreglo tal como lo retorna `quote()`.
-     * - $echo: si es true hace echo del resultado; si no, devuelve el string.
-     *
-     * Ejemplo de uso:
-     *   $quotes = $service->quote($id_product, $id_city);
-     *   $service->printQuotes($quotes); // imprime
-     */
-    public function printQuotes(array $quotes, $echo = true)
-    {
-        $lines = [];
-        if (empty($quotes)) {
-            $lines[] = 'No se encontraron cotizaciones.';
-        } else {
-            foreach ($quotes as $q) {
-                $lines[] = sprintf(
-                    'Carrier: %s | Type: %s | Price: %.2f | Weight real: %.3f kg | Vol: %.3f kg | Billable: %.3f kg',
-                    isset($q['carrier']) ? $q['carrier'] : 'N/A',
-                    isset($q['type']) ? $q['type'] : 'N/A',
-                    isset($q['price']) ? (float)$q['price'] : 0.0,
-                    isset($q['weight_real']) ? (float)$q['weight_real'] : 0.0,
-                    isset($q['weight_vol']) ? (float)$q['weight_vol'] : 0.0,
-                    isset($q['weight_billable']) ? (float)$q['weight_billable'] : 0.0
-                );
-            }
-        }
-
-        $output = implode(PHP_EOL, $lines);
-
-        if ($echo) {
-            echo $output;
-        }
-
-        return $output;
-    }
 }

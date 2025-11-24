@@ -147,10 +147,7 @@ class AdminShippingCalculatorController extends ModuleAdminController
 
                 $this->confirmations[] = $this->quotes
                     ? "Cotización realizada correctamente."
-                    : "No se encontraron tarifas disponibles para la cotización.";
-
-                $this->confirmations[] = $service->printQuotes($this->quotes);
-
+                    : "No se encontraron tarifas disponibles para la cotización.";        
             } catch (Exception $e) {
                 $this->errors[] = "Error al cotizar: ".$e->getMessage();
             }

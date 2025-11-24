@@ -92,26 +92,34 @@
             <tr>
               <th>Transportadora</th>
               <th style="width:160px;">Tipo</th>
+              <th style="width:140px;">Peso real (kg)</th>
+              <th style="width:160px;">Peso volumétrico (kg)</th>
               <th style="width:180px;">Precio</th>
             </tr>
           </thead>
           <tbody>
             {foreach $quotes as $q}
-              <tr>
-                <td>
-                  <strong>{$q.carrier}</strong>
-                </td>
-                <td>
-                  {if $q.type == 'per_kg'}
-                    <span class="badge badge-info">Por Kg</span>
-                  {else}
-                    <span class="badge badge-success">Por Rangos</span>
-                  {/if}
-                </td>
-                <td>
-                  <strong>$ {$q.price|number_format:0:",":"."}</strong>
-                </td>
-              </tr>
+                <tr>
+                  <td>
+                    <strong>{$q.carrier}</strong>
+                  </td>
+                  <td>
+                    {if $q.type == 'per_kg'}
+                      <span class="badge badge-info">Por Kg</span>
+                    {else}
+                      <span class="badge badge-success">Por Rangos</span>
+                    {/if}
+                  </td>
+                  <td>
+                    {$q.weight_real|default:0|number_format:3:",":"."}
+                  </td>
+                  <td>
+                    {$q.weight_vol|default:0|number_format:3:",":"."}
+                  </td>
+                  <td>
+                    <strong>$ {$q.price|number_format:0:",":"."}</strong>
+                  </td>
+                </tr>
             {/foreach}
           </tbody>
         </table>
