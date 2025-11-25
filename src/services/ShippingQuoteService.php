@@ -97,6 +97,67 @@ class ShippingQuoteService
     }
 
     /**
+     * Cotiza múltiples productos (array de items ['id_product'=>, 'qty'=>])
+     * Retorna detalle por producto con la cotización más barata y el total acumulado.
+     */
+    public function quoteMultiple(array $items, $id_city)
+    {
+        $lang_id = Context::getContext()->language->id;
+        $results = [];
+        $total = 0.0;
+
+        foreach ($items as $it) {
+            $id_product = isset($it['id_product']) ? (int)$it['id_product'] : 0;
+            $qty = isset($it['qty']) ? max(1, (int)$it['qty']) : 1;
+
+            if (!$id_product) {
+                continue;
+            }
+
+            // verificar si es agrupado
+            $row = Db::getInstance()->getRow("SELECT is_grouped FROM "._DB_PREFIX_."shipping_product WHERE id_product = ".(int)$id_product);
+            $is_grouped = $row ? (int)$row['is_grouped'] : 0;
+
+            $productRow = Db::getInstance()->getRow("SELECT id_product, name FROM "._DB_PREFIX_."product_lang WHERE id_product = ".(int)$id_product." AND id_lang = ".(int)$lang_id);
+
+            if ($is_grouped === 1) {
+                $results[] = [
+                    'id_product' => $id_product,
+                    'name'       => $productRow ? $productRow['name'] : '',
+                    'qty'        => $qty,
+                    'is_grouped' => 1,
+                    'cheapest'   => null,
+                    'quotes'     => [],
+                ];
+                continue;
+            }
+
+            // reutilizar la cotización por producto
+            $quotes = $this->quote($id_product, $id_city, $qty);
+
+            $cheapest = null;
+            if ($quotes && count($quotes) > 0) {
+                $cheapest = [
+                    'carrier' => $quotes[0]['carrier'],
+                    'price'   => (float)$quotes[0]['price'],
+                ];
+                $total += (float)$quotes[0]['price'];
+            }
+
+            $results[] = [
+                'id_product' => $id_product,
+                'name'       => $productRow ? $productRow['name'] : '',
+                'qty'        => $qty,
+                'is_grouped' => 0,
+                'cheapest'   => $cheapest,
+                'quotes'     => $quotes,
+            ];
+        }
+
+        return ['items' => $results, 'total' => (float)$total];
+    }
+
+    /**
      * Devuelve SOLO carriers registrados que tienen filas
      * para esta ciudad en alguna tabla de tarifas.
      */

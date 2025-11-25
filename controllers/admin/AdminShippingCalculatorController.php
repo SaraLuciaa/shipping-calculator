@@ -107,12 +107,13 @@ class AdminShippingCalculatorController extends ModuleAdminController
         if (Tools::isSubmit('submitQuote')) {
             $this->activePanel = 'panel-quote';
 
-            $id_product = (int)Tools::getValue('id_product');
-            $id_city    = (int)Tools::getValue('id_city');
-            $qty        = max(1, (int)Tools::getValue('qty'));
+            $id_city = (int)Tools::getValue('id_city');
 
-            if (!$id_product || !$id_city) {
-                $this->errors[] = "Selecciona producto y ciudad.";
+            // soporte para múltiples productos: campo products[] (cada item: id_product, qty)
+            $productsInput = Tools::getValue('products');
+
+            if (!$id_city) {
+                $this->errors[] = "Selecciona la ciudad.";
                 return;
             }
 
@@ -122,32 +123,63 @@ class AdminShippingCalculatorController extends ModuleAdminController
                     new WeightCalculatorService()
                 );
 
-                $this->quotes = $service->quote($id_product, $id_city, $qty);
+                if (is_array($productsInput) && count($productsInput) > 0) {
+                    // normalizar items
+                    $items = [];
+                    foreach ($productsInput as $p) {
+                        $idp = isset($p['id_product']) ? (int)$p['id_product'] : 0;
+                        $q   = isset($p['qty']) ? max(1, (int)$p['qty']) : 1;
+                        if ($idp) {
+                            $items[] = ['id_product' => $idp, 'qty' => $q];
+                        }
+                    }
 
-                // Para mostrar resumen en la vista:
-                $selectedProduct = Db::getInstance()->getRow("
-                    SELECT id_product, name
-                    FROM "._DB_PREFIX_."product_lang
-                    WHERE id_product=".(int)$id_product."
-                    AND id_lang=".(int)$this->context->language->id."
-                ");
+                    if (empty($items)) {
+                        $this->errors[] = "Agrega al menos un producto válido.";
+                        return;
+                    }
 
-                $selectedCity = Db::getInstance()->getRow("
-                    SELECT c.id_city, c.name, s.name AS state
-                    FROM "._DB_PREFIX_."city c
-                    LEFT JOIN "._DB_PREFIX_."state s ON s.id_state=c.id_state
-                    WHERE c.id_city=".(int)$id_city."
-                ");
+                    $result = $service->quoteMultiple($items, $id_city);
+                    // asignar para la vista
+                    $this->context->smarty->assign([
+                        'quotes_multi' => $result['items'],
+                        'quotes_total' => $result['total'],
+                    ]);
 
-                $this->context->smarty->assign([
-                    'selected_product' => $selectedProduct,
-                    'selected_city'    => $selectedCity,
-                    'selected_qty'     => $qty,
-                ]);
+                    // también asignar ciudad
+                    $selectedCity = Db::getInstance()->getRow("\n                        SELECT c.id_city, c.name, s.name AS state\n                        FROM "._DB_PREFIX_."city c\n                        LEFT JOIN "._DB_PREFIX_."state s ON s.id_state=c.id_state\n                        WHERE c.id_city=".(int)$id_city."\n                    ");
 
-                $this->confirmations[] = $this->quotes
-                    ? "Cotización realizada correctamente."
-                    : "No se encontraron tarifas disponibles para la cotización.";        
+                    $this->context->smarty->assign(['selected_city' => $selectedCity]);
+
+                    $this->confirmations[] = "Cotización múltiple realizada.";
+                } else {
+                    // modo legacy: id_product + qty
+                    $id_product = (int)Tools::getValue('id_product');
+                    $qty        = max(1, (int)Tools::getValue('qty'));
+
+                    if (!$id_product) {
+                        $this->errors[] = "Selecciona producto.";
+                        return;
+                    }
+
+                    $this->quotes = $service->quote($id_product, $id_city, $qty);
+
+                    // Para mostrar resumen en la vista:
+                    $selectedProduct = Db::getInstance()->getRow("\n                        SELECT id_product, name\n                        FROM "._DB_PREFIX_."product_lang\n                        WHERE id_product=".(int)$id_product."\n                        AND id_lang=".(int)$this->context->language->id."\n                    ");
+
+                    $selectedCity = Db::getInstance()->getRow("\n                        SELECT c.id_city, c.name, s.name AS state\n                        FROM "._DB_PREFIX_."city c\n                        LEFT JOIN "._DB_PREFIX_."state s ON s.id_state=c.id_state\n                        WHERE c.id_city=".(int)$id_city."\n                    ");
+
+                    $this->context->smarty->assign([
+                        'selected_product' => $selectedProduct,
+                        'selected_city'    => $selectedCity,
+                        'selected_qty'     => $qty,
+                    ]);
+
+                    $this->confirmations[] = $this->quotes
+                        ? "Cotización realizada correctamente."
+                        : "No se encontraron tarifas disponibles para la cotización.";        
+                }
+
             } catch (Exception $e) {
                 $this->errors[] = "Error al cotizar: ".$e->getMessage();
             }
@@ -159,12 +191,7 @@ class AdminShippingCalculatorController extends ModuleAdminController
      * ============================================================ */
     public function renderList()
     {
-        $registered = Db::getInstance()->executeS("
-            SELECT crt.id_carrier, crt.type, c.name
-            FROM "._DB_PREFIX_."shipping_rate_type crt
-            LEFT JOIN "._DB_PREFIX_."carrier c ON c.id_carrier = crt.id_carrier
-            WHERE crt.active = 1
-        ");
+        $registered = Db::getInstance()->executeS("\n            SELECT crt.id_carrier, crt.type, c.name\n            FROM "._DB_PREFIX_."shipping_rate_type crt\n            LEFT JOIN "._DB_PREFIX_."carrier c ON c.id_carrier = crt.id_carrier\n            WHERE crt.active = 1\n        ");
 
         $allCarriers = Carrier::getCarriers(
             $this->context->language->id,
@@ -175,20 +202,9 @@ class AdminShippingCalculatorController extends ModuleAdminController
             Carrier::ALL_CARRIERS
         );
 
-        $products = Db::getInstance()->executeS("
-            SELECT id_product, name
-            FROM "._DB_PREFIX_."product_lang
-            WHERE id_lang = ".(int)$this->context->language->id."
-            ORDER BY name ASC
-        ");
+        $products = Db::getInstance()->executeS("\n            SELECT id_product, name\n            FROM "._DB_PREFIX_."product_lang\n            WHERE id_lang = ".(int)$this->context->language->id."\n            ORDER BY name ASC\n        ");
 
-        $cities = Db::getInstance()->executeS("
-            SELECT c.id_city, c.name, s.name AS state
-            FROM "._DB_PREFIX_."city c
-            LEFT JOIN "._DB_PREFIX_."state s ON s.id_state = c.id_state
-            WHERE c.active = 1
-            ORDER BY c.name ASC
-        ");
+        $cities = Db::getInstance()->executeS("\n            SELECT c.id_city, c.name, s.name AS state\n            FROM "._DB_PREFIX_."city c\n            LEFT JOIN "._DB_PREFIX_."state s ON s.id_state = c.id_state\n            WHERE c.active = 1\n            ORDER BY c.name ASC\n        ");
 
         $this->context->smarty->assign([
             'registered_carriers' => $registered,
