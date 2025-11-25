@@ -129,7 +129,7 @@
       {/foreach}
 
       <div class="panel-footer">
-        <h4>Total envío (sumando la opción más barata por producto): <strong>$ {$quotes_total|number_format:0:",":"."}</strong></h4>
+        <h4>Total envío: <strong>$ {$quotes_total|number_format:0:",":"."}</strong></h4>
       </div>
     {/if}
 
