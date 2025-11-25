@@ -88,6 +88,12 @@
             {/if}
           </div>
           <div class="panel-body">
+            {if $item.quotes|@count > 0}
+              {assign var=firstQuote value=$item.quotes[0]}
+              <div style="margin-top:8px;">
+                <p>Peso real: <strong>{$firstQuote.weight_real|default:0|number_format:3:",":"."} kg</strong></p>
+              </div>
+            {/if}
             {if $item.cheapest}
               <p>Mejor opción: <strong>{$item.cheapest.carrier}</strong> — <strong>$ {$item.cheapest.price|number_format:0:",":"."}</strong></p>
             {else}
@@ -101,6 +107,7 @@
                     <tr>
                       <th>Transportadora</th>
                       <th>Tipo</th>
+                      <th style="width:160px;">Peso volumétrico (kg)</th>
                       <th>Precio</th>
                     </tr>
                   </thead>
@@ -109,6 +116,7 @@
                       <tr>
                         <td>{$q.carrier}</td>
                         <td>{if $q.type == 'per_kg'}Por Kg{else}Por Rangos{/if}</td>
+                        <td>{$q.weight_vol|default:0|number_format:2:",":"."}</td>
                         <td>$ {$q.price|number_format:0:",":"."}</td>
                       </tr>
                     {/foreach}

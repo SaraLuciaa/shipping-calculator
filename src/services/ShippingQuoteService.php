@@ -211,9 +211,22 @@ class ShippingQuoteService
               AND active = 1
         ");
 
+        $min = Db::getInstance()->getRow("
+            SELECT value_number
+            FROM "._DB_PREFIX_."shipping_config
+            WHERE name = 'Flete minimo'
+            AND id_carrier = ".(int)$id_carrier."
+        ");
+
         if (!$row) return null;
 
-        return (float)$row['price'] * (float)$weight;
+        $price = (float)$row['price'] * (float)$weight;
+
+        if ($min && isset($min['value_number']) && $price < (float)$min['value_number']) {
+            $price = (float)$min['value_number'];
+        }
+
+        return $price;
     }
 
     /**

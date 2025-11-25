@@ -92,11 +92,7 @@ $sql[] = 'CREATE TABLE IF NOT EXISTS `'._DB_PREFIX_.'shipping_config` (
     `id_config` INT(11) NOT NULL AUTO_INCREMENT,
     `id_carrier` INT(11) NULL DEFAULT NULL,
     `name` VARCHAR(100) NOT NULL,
-    
-    `value_number` DECIMAL(15,3) NULL,
-    `value_text` VARCHAR(255) NULL,
-    `unit` VARCHAR(20) NULL,
-        
+    `value_number` DECIMAL(15,3) NULL,    
     `date_add` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
     `date_upd` DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
