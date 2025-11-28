@@ -153,22 +153,6 @@ class AdminShippingCalculatorController extends ModuleAdminController
 
                     // Usar nuevo método que maneja ambos tipos
                     $result = $service->quoteMultipleWithGrouped($items, $id_city);
-                    
-                    // DEBUG: Log valores
-                    $this->confirmations[] = "DEBUG quoteMultipleWithGrouped result: " . json_encode([
-                        'total_grouped' => $result['total_grouped'],
-                        'total_individual' => $result['total_individual'],
-                        'grand_total' => $result['grand_total'],
-                        'grouped_packages_count' => count($result['grouped_packages']),
-                        'individual_items_count' => count($result['individual_items']),
-                    ]);
-        
-                    // Debug: mostrar precios de paquetes agrupados
-                    if (!empty($result['grouped_packages'])) {
-                        foreach ($result['grouped_packages'] as $i => $pkg) {
-                            error_log("DEBUG package[$i]: cheapest=" . json_encode($pkg['cheapest']));
-                        }
-                    }                    
 
                     $this->context->smarty->assign([
                         'grouped_packages' => $result['grouped_packages'],
