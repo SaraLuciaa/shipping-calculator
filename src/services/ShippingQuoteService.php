@@ -199,6 +199,9 @@ class ShippingQuoteService
             $product = new Product($id_product);
             if (!Validate::isLoadedObject($product)) continue;
             
+            // Obtener nombre en el idioma actual
+            $productName = $this->getProductName($id_product, $lang_id);
+            
             if ($is_grouped === 1) {
                 $groupedItems[] = [
                     'id_product' => $id_product,
@@ -207,13 +210,13 @@ class ShippingQuoteService
                     'height' => (float)$product->height,
                     'width' => (float)$product->width,
                     'depth' => (float)$product->depth,
-                    'name' => $product->name
+                    'name' => $productName
                 ];
             } else {
                 $individualItems[] = [
                     'id_product' => $id_product,
                     'qty' => $qty,
-                    'name' => $product->name
+                    'name' => $productName
                 ];
             }
         }
@@ -317,14 +320,28 @@ class ShippingQuoteService
                 ];
             }
             
-            // Construir descripción de contenido del paquete
+            // Construir descripción de contenido del paquete con detalles de pesos
             $itemsSummary = [];
+            $itemsDetailed = [];
+            
             foreach ($package['items'] as $item) {
+                $itemName = $this->getProductName($item['id_product'], $lang_id);
                 $itemsSummary[] = sprintf(
                     "%s (%d unidades)",
-                    $this->getProductName($item['id_product'], $lang_id),
+                    $itemName,
                     $item['units_in_package']
                 );
+                
+                // Crear estructura detallada para cada item con pesos
+                $itemsDetailed[] = [
+                    'id_product' => $item['id_product'],
+                    'name' => $itemName,
+                    'units_in_package' => $item['units_in_package'],
+                    'real_weight_unit' => isset($item['real_weight_unit']) ? (float)$item['real_weight_unit'] : 0,
+                    'volumetric_weight_unit' => isset($item['volumetric_weight_unit']) ? (float)$item['volumetric_weight_unit'] : 0,
+                    'total_real_weight' => isset($item['real_weight_unit']) ? (float)$item['real_weight_unit'] * $item['units_in_package'] : 0,
+                    'total_volumetric_weight' => isset($item['volumetric_weight_unit']) ? (float)$item['volumetric_weight_unit'] * $item['units_in_package'] : 0
+                ];
             }
             
             $results[] = [
@@ -332,7 +349,7 @@ class ShippingQuoteService
                 'package_type' => 'grouped',
                 'total_weight' => $packageWeight,
                 'items_summary' => implode(", ", $itemsSummary),
-                'items_detail' => $package['items'],
+                'items_detail' => $itemsDetailed,
                 'cheapest' => $cheapest,
                 'quotes' => $quotes
             ];
