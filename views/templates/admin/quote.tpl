@@ -64,73 +64,230 @@
    RESULTADOS
    ========================== *}
 
-{if isset($quotes) || isset($quotes_multi)}
+{if isset($quotes) || isset($grouped_packages) || isset($individual_items)}
 
   <div class="panel">
     <h3><i class="icon-list"></i> Resultados de cotización</h3>
 
-    {if isset($quotes_multi)}
+    {* RESULTADOS CON PRODUCTOS AGRUPADOS E INDIVIDUALES *}
+    {if isset($grouped_packages) || isset($individual_items)}
+      {if isset($selected_city)}
+        <div class="well well-sm">
+          <div class="row">
+            <div class="col-md-12">
+              <strong>Ciudad destino:</strong>
+              {$selected_city.name} ({$selected_city.state})
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      {* PAQUETES AGRUPADOS *}
+      {if isset($grouped_packages) && $grouped_packages|@count > 0}
+        <div class="alert alert-info">
+          <h4><i class="icon-cube"></i> Paquetes Agrupados</h4>
+          <p>Productos mezclados en paquetes de máximo 60 kg</p>
+        </div>
+
+        {foreach $grouped_packages as $package}
+          <div class="panel panel-default">
+            <div class="panel-heading">
+              <strong>Paquete {$package.package_id}</strong> — Peso total: {$package.total_weight|number_format:2:",":"."} kg
+              <div style="margin-top:8px;">
+                <small><strong>Contiene:</strong> {$package.items_summary}</small>
+              </div>
+            </div>
+            <div class="panel-body">
+              {if $package.cheapest}
+                <p>Mejor opción: <strong>{$package.cheapest.carrier}</strong> — <strong>$ {$package.cheapest.price|number_format:0:",":"."}</strong></p>
+              {else}
+                <p class="text-muted">No se encontraron tarifas para este paquete.</p>
+              {/if}
+
+              {if $package.quotes|@count > 0}
+                <div class="table-responsive">
+                  <table class="table table-condensed table-striped">
+                    <thead>
+                      <tr>
+                        <th>Transportadora</th>
+                        <th>Tipo</th>
+                        <th>Precio</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {foreach $package.quotes as $q}
+                        <tr>
+                          <td>{$q.carrier}</td>
+                          <td>{if $q.type == 'per_kg'}Por Kg{else}Por Rangos{/if}</td>
+                          <td>$ {$q.price|number_format:0:",":"."}</td>
+                        </tr>
+                      {/foreach}
+                    </tbody>
+                  </table>
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/foreach}
+      {/if}
+
+      {* PRODUCTOS INDIVIDUALES *}
+      {if isset($individual_items) && $individual_items|@count > 0}
+        <div class="alert alert-warning">
+          <h4><i class="icon-package"></i> Productos Individuales</h4>
+          <p>Productos cotizados individualmente (no agrupables)</p>
+        </div>
+
+        {foreach $individual_items as $item}
+          <div class="panel panel-default">
+            <div class="panel-heading">
+              <strong>{$item.name}</strong> — Cantidad: {$item.qty}
+              {if $item.reason}
+                {if $item.reason == 'from_grouped_exceeds_max'}
+                  <span class="label label-danger">Peso excede paquete agrupado</span>
+                {/if}
+              {/if}
+              {if $item.quotes|@count > 0}
+                {assign var=firstQuote value=$item.quotes[0]}
+                <div style="margin-top:8px;">
+                  <small>Peso real: <strong>{$firstQuote.weight_real|default:0|number_format:3:",":"."} kg</strong></small>
+                  &nbsp;•&nbsp;
+                  <small>Peso volumétrico: <strong>{$firstQuote.weight_vol|default:0|number_format:3:",":"."} kg</strong></small>
+                </div>
+              {/if}
+            </div>
+            <div class="panel-body">
+              {if $item.cheapest}
+                <p>Mejor opción: <strong>{$item.cheapest.carrier}</strong> — <strong>$ {$item.cheapest.price|number_format:0:",":"."}</strong></p>
+              {else}
+                <p class="text-muted">No se encontraron tarifas para este producto.</p>
+              {/if}
+
+              {if $item.quotes|@count > 0}
+                <div class="table-responsive">
+                  <table class="table table-condensed table-striped">
+                    <thead>
+                      <tr>
+                        <th>Transportadora</th>
+                        <th>Tipo</th>
+                        <th style="width:140px;">Peso real (kg)</th>
+                        <th style="width:160px;">Peso volumétrico (kg)</th>
+                        <th>Precio</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {foreach $item.quotes as $q}
+                        <tr>
+                          <td>{$q.carrier}</td>
+                          <td>{if $q.type == 'per_kg'}Por Kg{else}Por Rangos{/if}</td>
+                          <td>{$q.weight_real|default:0|number_format:3:",":"."}</td>
+                          <td>{$q.weight_vol|default:0|number_format:3:",":"."}</td>
+                          <td>$ {$q.price|number_format:0:",":"."}</td>
+                        </tr>
+                      {/foreach}
+                    </tbody>
+                  </table>
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/foreach}
+      {/if}
+
+      {* TOTALES FINALES *}
+      {if (isset($grouped_packages) && $grouped_packages|@count > 0) || (isset($individual_items) && $individual_items|@count > 0)}
+        <div class="panel-footer">
+          <table class="table table-condensed" style="margin-bottom:0;">
+            <tbody>
+              {if isset($total_grouped) && $total_grouped > 0}
+                <tr style="background-color:#f5f5f5;">
+                  <td><strong>Total paquetes agrupados:</strong></td>
+                  <td style="text-align:right;"><strong>$ {$total_grouped|number_format:0:",":"."}</strong></td>
+                </tr>
+              {/if}
+              {if isset($total_individual) && $total_individual > 0}
+                <tr style="background-color:#f5f5f5;">
+                  <td><strong>Total productos individuales:</strong></td>
+                  <td style="text-align:right;"><strong>$ {$total_individual|number_format:0:",":"."}</strong></td>
+                </tr>
+              {/if}
+              {if isset($grand_total)}
+                <tr style="background-color:#e8f4f8; font-size:16px;">
+                  <td><strong>TOTAL ENVÍO:</strong></td>
+                  <td style="text-align:right;"><strong style="color:#2196F3;">$ {$grand_total|number_format:0:",":"."}</strong></td>
+                </tr>
+              {/if}
+            </tbody>
+          </table>
+        </div>
+      {/if}
+    {/if}
+
+    {* MODO LEGACY (single-product) *}
+    {if isset($quotes)}
+
       <div class="well well-sm">
         <div class="row">
-          <div class="col-md-12">
+          <div class="col-md-6">
+            <strong>Producto:</strong>
+            {if isset($selected_product)}{$selected_product.name}{else}-{/if}
+          </div>
+          <div class="col-md-2">
+            <strong>Cantidad:</strong>
+            {if isset($selected_qty)}{$selected_qty}{else}1{/if}
+          </div>
+          <div class="col-md-4">
             <strong>Ciudad destino:</strong>
             {if isset($selected_city)}{$selected_city.name} ({$selected_city.state}){else}-{/if}
           </div>
         </div>
       </div>
 
-      {foreach $quotes_multi as $item}
-        <div class="panel panel-default">
-          <div class="panel-heading">
-            <strong>{$item.name}</strong> — Cantidad: {$item.qty}
-            {if $item.is_grouped}
-              <span class="label label-warning">Agrupado (no se cotiza)</span>
-            {/if}
-          </div>
-          <div class="panel-body">
-            {if $item.quotes|@count > 0}
-              {assign var=firstQuote value=$item.quotes[0]}
-              <div style="margin-top:8px;">
-                <p>Peso real: <strong>{$firstQuote.weight_real|default:0|number_format:3:",":"."} kg</strong></p>
-              </div>
-            {/if}
-            {if $item.cheapest}
-              <p>Mejor opción: <strong>{$item.cheapest.carrier}</strong> — <strong>$ {$item.cheapest.price|number_format:0:",":"."}</strong></p>
-            {else}
-              <p class="text-muted">No se encontraron tarifas para este producto.</p>
-            {/if}
-
-            {if $item.quotes|@count > 0}
-              <div class="table-responsive">
-                <table class="table table-condensed table-striped">
-                  <thead>
-                    <tr>
-                      <th>Transportadora</th>
-                      <th>Tipo</th>
-                      <th style="width:160px;">Peso volumétrico (kg)</th>
-                      <th>Precio</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {foreach $item.quotes as $q}
-                      <tr>
-                        <td>{$q.carrier}</td>
-                        <td>{if $q.type == 'per_kg'}Por Kg{else}Por Rangos{/if}</td>
-                        <td>{$q.weight_vol|default:0|number_format:2:",":"."}</td>
-                        <td>$ {$q.price|number_format:0:",":"."}</td>
-                      </tr>
-                    {/foreach}
-                  </tbody>
-                </table>
-              </div>
-            {/if}
-          </div>
+      {if $quotes|count > 0}
+        <div class="table-responsive">
+          <table class="table table-striped table-bordered">
+            <thead>
+              <tr>
+                <th>Transportadora</th>
+                <th style="width:160px;">Tipo</th>
+                <th style="width:140px;">Peso real (kg)</th>
+                <th style="width:160px;">Peso volumétrico (kg)</th>
+                <th style="width:180px;">Precio</th>
+              </tr>
+            </thead>
+            <tbody>
+              {foreach $quotes as $q}
+                  <tr>
+                    <td>
+                      <strong>{$q.carrier}</strong>
+                    </td>
+                    <td>
+                      {if $q.type == 'per_kg'}
+                        <span class="badge badge-info">Por Kg</span>
+                      {else}
+                        <span class="badge badge-success">Por Rangos</span>
+                      {/if}
+                    </td>
+                    <td>
+                      {$q.weight_real|default:0|number_format:3:",":"."}
+                    </td>
+                    <td>
+                      {$q.weight_vol|default:0|number_format:3:",":"."}
+                    </td>
+                    <td>
+                      <strong>$ {$q.price|number_format:0:",":"."}</strong>
+                    </td>
+                  </tr>
+              {/foreach}
+            </tbody>
+          </table>
         </div>
-      {/foreach}
+      {else}
+        <div class="alert alert-warning">
+          No se encontraron tarifas disponibles para este producto y ciudad.
+        </div>
+      {/if}
 
-      <div class="panel-footer">
-        <h4>Total envío: <strong>$ {$quotes_total|number_format:0:",":"."}</strong></h4>
-      </div>
     {/if}
 
   </div>

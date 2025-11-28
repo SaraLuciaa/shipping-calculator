@@ -109,7 +109,7 @@ class AdminShippingCalculatorController extends ModuleAdminController
 
             $id_city = (int)Tools::getValue('id_city');
 
-            // soporte para múltiples productos: campo products[] (cada item: id_product, qty)
+            // soporte para múltiples productos: campo products[] (cada item: id_product, qty, is_grouped)
             $productsInput = Tools::getValue('products');
 
             if (!$id_city) {
@@ -124,13 +124,25 @@ class AdminShippingCalculatorController extends ModuleAdminController
                 );
 
                 if (is_array($productsInput) && count($productsInput) > 0) {
-                    // normalizar items
+                    // normalizar items: obtener is_grouped de la BD
                     $items = [];
                     foreach ($productsInput as $p) {
                         $idp = isset($p['id_product']) ? (int)$p['id_product'] : 0;
                         $q   = isset($p['qty']) ? max(1, (int)$p['qty']) : 1;
                         if ($idp) {
-                            $items[] = ['id_product' => $idp, 'qty' => $q];
+                            // Obtener is_grouped desde BD
+                            $groupedRow = Db::getInstance()->getRow("
+                                SELECT is_grouped
+                                FROM "._DB_PREFIX_."shipping_product
+                                WHERE id_product = ".(int)$idp."
+                            ");
+                            $isGrouped = $groupedRow ? (int)$groupedRow['is_grouped'] : 0;
+                            
+                            $items[] = [
+                                'id_product' => $idp,
+                                'qty' => $q,
+                                'is_grouped' => $isGrouped
+                            ];
                         }
                     }
 
@@ -139,11 +151,31 @@ class AdminShippingCalculatorController extends ModuleAdminController
                         return;
                     }
 
-                    $result = $service->quoteMultiple($items, $id_city);
-                    // asignar para la vista
+                    // Usar nuevo método que maneja ambos tipos
+                    $result = $service->quoteMultipleWithGrouped($items, $id_city);
+                    
+                    // DEBUG: Log valores
+                    $this->confirmations[] = "DEBUG quoteMultipleWithGrouped result: " . json_encode([
+                        'total_grouped' => $result['total_grouped'],
+                        'total_individual' => $result['total_individual'],
+                        'grand_total' => $result['grand_total'],
+                        'grouped_packages_count' => count($result['grouped_packages']),
+                        'individual_items_count' => count($result['individual_items']),
+                    ]);
+        
+                    // Debug: mostrar precios de paquetes agrupados
+                    if (!empty($result['grouped_packages'])) {
+                        foreach ($result['grouped_packages'] as $i => $pkg) {
+                            error_log("DEBUG package[$i]: cheapest=" . json_encode($pkg['cheapest']));
+                        }
+                    }                    
+
                     $this->context->smarty->assign([
-                        'quotes_multi' => $result['items'],
-                        'quotes_total' => $result['total'],
+                        'grouped_packages' => $result['grouped_packages'],
+                        'individual_items' => $result['individual_items'],
+                        'total_grouped' => $result['total_grouped'],
+                        'total_individual' => $result['total_individual'],
+                        'grand_total' => $result['grand_total'],
                     ]);
 
                     // también asignar ciudad
@@ -151,7 +183,7 @@ class AdminShippingCalculatorController extends ModuleAdminController
 
                     $this->context->smarty->assign(['selected_city' => $selectedCity]);
 
-                    $this->confirmations[] = "Cotización múltiple realizada.";
+                    $this->confirmations[] = "Cotización múltiple realizada (productos agrupados e individuales).";
                 } else {
                     // modo legacy: id_product + qty
                     $id_product = (int)Tools::getValue('id_product');
