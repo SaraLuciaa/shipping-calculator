@@ -148,8 +148,11 @@
                     <thead>
                       <tr>
                         <th>Transportadora</th>
-                        <th style="width:120px;">Tipo</th>
-                        <th style="width:120px;">Precio</th>
+                        <th style="width:100px;">Tipo</th>
+                        <th style="width:100px;">Flete</th>
+                        <th style="width:100px;">Empaque</th>
+                        <th style="width:100px;">Seguro</th>
+                        <th style="width:120px;">Total</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -157,7 +160,10 @@
                         <tr>
                           <td>{$q.carrier}</td>
                           <td>{if $q.type == 'per_kg'}Por Kg{else}Por Rangos{/if}</td>
-                          <td>$ {$q.price|number_format:0:",":"."}</td>
+                          <td>$ {$q.shipping_cost|number_format:0:",":"."}</td>
+                          <td>$ {$q.packaging_cost|number_format:0:",":"."}</td>
+                          <td>$ {$q.insurance_cost|number_format:0:",":"."}</td>
+                          <td><strong>$ {$q.price|number_format:0:",":"."}</strong></td>
                         </tr>
                       {/foreach}
                     </tbody>
@@ -208,9 +214,12 @@
                       <tr>
                         <th>Transportadora</th>
                         <th>Tipo</th>
-                        <th style="width:140px;">Peso real (kg)</th>
-                        <th style="width:160px;">Peso volumétrico (kg)</th>
-                        <th>Precio</th>
+                        <th style="width:100px;">Peso real</th>
+                        <th style="width:100px;">Peso vol.</th>
+                        <th style="width:100px;">Flete</th>
+                        <th style="width:100px;">Empaque</th>
+                        <th style="width:100px;">Seguro</th>
+                        <th style="width:120px;">Total</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -220,7 +229,10 @@
                           <td>{if $q.type == 'per_kg'}Por Kg{else}Por Rangos{/if}</td>
                           <td>{$q.weight_real|default:0|number_format:3:",":"."}</td>
                           <td>{$q.weight_vol|default:0|number_format:3:",":"."}</td>
-                          <td>$ {$q.price|number_format:0:",":"."}</td>
+                          <td>$ {$q.shipping_cost|number_format:0:",":"."}</td>
+                          <td>$ {$q.packaging_cost|number_format:0:",":"."}</td>
+                          <td>$ {$q.insurance_cost|number_format:0:",":"."}</td>
+                          <td><strong>$ {$q.price|number_format:0:",":"."}</strong></td>
                         </tr>
                       {/foreach}
                     </tbody>

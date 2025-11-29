@@ -36,7 +36,8 @@ class ShippingGroupedPackageService
      *       'weight_unit': float (kg),
      *       'height': float (cm),
      *       'width': float (cm),
-     *       'depth': float (cm)
+     *       'depth': float (cm),
+     *       'price': float
      *     },
      *     ...
      *   ]
@@ -50,7 +51,7 @@ class ShippingGroupedPackageService
      *         'package_type': 'grouped',
      *         'total_weight': float,
      *         'items': [
-     *           {'id_product': int, 'units_in_package': int},
+     *           {'id_product': int, 'units_in_package': int, 'price': float},
      *           ...
      *         ]
      *       },
@@ -68,18 +69,19 @@ class ShippingGroupedPackageService
      */
     public function buildGroupedPackages(array $groupedProducts, $volumetricFactor = 5000.0)
     {
-        $this->maxVolumetricFactor = (float)$volumetricFactor;
+        $this->maxVolumetricFactor = (float) $volumetricFactor;
 
         // Paso 1: Calcular peso máximo por unidad para TODOS los productos
         $productMetrics = [];
 
         foreach ($groupedProducts as $product) {
-            $id_product = (int)$product['id_product'];
-            $quantity = max(1, (int)$product['quantity']);
-            $weightUnit = (float)$product['weight_unit'];
-            $height = (float)$product['height'];
-            $width = (float)$product['width'];
-            $depth = (float)$product['depth'];
+            $id_product = (int) $product['id_product'];
+            $quantity = max(1, (int) $product['quantity']);
+            $weightUnit = (float) $product['weight_unit'];
+            $height = (float) $product['height'];
+            $width = (float) $product['width'];
+            $depth = (float) $product['depth'];
+            $price = isset($product['price']) ? (float) $product['price'] : 0.0;
 
             // Cálculo de peso volumétrico unitario
             $volumetricWeightUnit = $this->calculateVolumetricWeight($height, $width, $depth);
@@ -96,7 +98,8 @@ class ShippingGroupedPackageService
                 'weight_unit' => $maxWeightUnit,
                 'total_weight' => $totalProductWeight,
                 'volumetric_weight_unit' => $volumetricWeightUnit,
-                'real_weight_unit' => $weightUnit
+                'real_weight_unit' => $weightUnit,
+                'price' => $price
             ];
         }
 
@@ -118,7 +121,7 @@ class ShippingGroupedPackageService
         $packages = [];
         $packageIdCounter = 1;
         $forIndividualTreatment = [];
-        
+
         // Crear un mapa de id_product => metrics para acceso rápido
         $metricsMap = [];
         foreach ($products as $product) {
@@ -154,7 +157,8 @@ class ShippingGroupedPackageService
                     'id_product' => $id_product,
                     'units_in_package' => $quantity,
                     'real_weight_unit' => $metricsMap[$id_product]['real_weight_unit'],
-                    'volumetric_weight_unit' => $metricsMap[$id_product]['volumetric_weight_unit']
+                    'volumetric_weight_unit' => $metricsMap[$id_product]['volumetric_weight_unit'],
+                    'price' => $metricsMap[$id_product]['price']
                 ];
                 $packages[$bestPackageIdx]['total_weight'] += $totalWeight;
             } else {
@@ -168,7 +172,8 @@ class ShippingGroupedPackageService
                             'id_product' => $id_product,
                             'units_in_package' => $quantity,
                             'real_weight_unit' => $metricsMap[$id_product]['real_weight_unit'],
-                            'volumetric_weight_unit' => $metricsMap[$id_product]['volumetric_weight_unit']
+                            'volumetric_weight_unit' => $metricsMap[$id_product]['volumetric_weight_unit'],
+                            'price' => $metricsMap[$id_product]['price']
                         ]
                     ]
                 ];
@@ -224,7 +229,7 @@ class ShippingGroupedPackageService
      */
     private function calculateVolumetricWeight($height, $width, $depth)
     {
-        $volume = ($height/100) * ($width/100) * ($depth/100); // m³
+        $volume = ($height / 100) * ($width / 100) * ($depth / 100); // m³
         return $volume * $this->maxVolumetricFactor; // kg
     }
 }
