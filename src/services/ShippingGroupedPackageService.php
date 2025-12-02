@@ -110,11 +110,10 @@ class ShippingGroupedPackageService
     }
 
     /**
-     * Implementa best-fit packing sin dividir productos
+     * Implementa best-fit packing permitiendo dividir productos
      * 
-     * Regla: Todas las unidades de un mismo producto deben estar en UN SOLO paquete.
-     * Si no caben todas las unidades en un paquete existente, se crea uno nuevo.
-     * Si el producto completo excede 60kg, se marca para tratamiento individual.
+     * Regla: Las unidades de un mismo producto se pueden dividir en múltiples paquetes.
+     * Se colocan tantas unidades como quepan en cada paquete hasta completar la cantidad.
      */
     private function bestFitPackingWithIndividuals(array $products)
     {
@@ -132,51 +131,83 @@ class ShippingGroupedPackageService
             $id_product = $product['id_product'];
             $quantity = $product['quantity'];
             $unitWeight = $product['weight_unit'];
-            $totalWeight = $product['total_weight'];  // weight_unit * quantity
 
-            // Si el PRODUCTO COMPLETO pesa más de 60kg, no se puede agrupar
-            if ($totalWeight > $this->maxWeightPerPackage) {
+            // Si una SOLA UNIDAD pesa más de 60kg, marcar para tratamiento individual
+            if ($unitWeight > $this->maxWeightPerPackage) {
                 $forIndividualTreatment[] = [
                     'id_product' => $id_product,
                     'quantity' => $quantity,
-                    'reason' => 'product_exceeds_max_weight',
-                    'total_weight' => $totalWeight
+                    'reason' => 'unit_exceeds_max_weight',
+                    'unit_weight' => $unitWeight
                 ];
                 continue;
             }
 
-            // Intentar colocar EL PRODUCTO COMPLETO en un paquete existente
-            $bestPackageIdx = $this->findBestFitPackageForProduct(
-                $packages,
-                $totalWeight
-            );
+            // Distribuir unidades en paquetes
+            $remainingUnits = $quantity;
 
-            if ($bestPackageIdx !== null) {
-                // Cabe completo en un paquete existente
-                $packages[$bestPackageIdx]['items'][] = [
-                    'id_product' => $id_product,
-                    'units_in_package' => $quantity,
-                    'real_weight_unit' => $metricsMap[$id_product]['real_weight_unit'],
-                    'volumetric_weight_unit' => $metricsMap[$id_product]['volumetric_weight_unit'],
-                    'price' => $metricsMap[$id_product]['price']
-                ];
-                $packages[$bestPackageIdx]['total_weight'] += $totalWeight;
-            } else {
-                // Crear nuevo paquete para el producto completo
-                $packages[] = [
-                    'package_id' => 'grouped_' . $packageIdCounter++,
-                    'package_type' => 'grouped',
-                    'total_weight' => $totalWeight,
-                    'items' => [
-                        [
+            while ($remainingUnits > 0) {
+                // Buscar el mejor paquete donde quepan al menos 1 unidad
+                $bestPackageIdx = $this->findBestFitPackageForUnits(
+                    $packages,
+                    $unitWeight
+                );
+
+                if ($bestPackageIdx !== null) {
+                    // Calcular cuántas unidades caben en el espacio disponible
+                    $availableSpace = $this->maxWeightPerPackage - $packages[$bestPackageIdx]['total_weight'];
+                    $unitsThatFit = (int) floor($availableSpace / $unitWeight);
+                    $unitsToAdd = min($unitsThatFit, $remainingUnits);
+
+                    // Verificar si ya existe este producto en el paquete
+                    $existingItemIdx = null;
+                    foreach ($packages[$bestPackageIdx]['items'] as $idx => $item) {
+                        if ($item['id_product'] === $id_product) {
+                            $existingItemIdx = $idx;
+                            break;
+                        }
+                    }
+
+                    if ($existingItemIdx !== null) {
+                        // Incrementar unidades del producto existente
+                        $packages[$bestPackageIdx]['items'][$existingItemIdx]['units_in_package'] += $unitsToAdd;
+                    } else {
+                        // Agregar nuevo producto al paquete
+                        $packages[$bestPackageIdx]['items'][] = [
                             'id_product' => $id_product,
-                            'units_in_package' => $quantity,
+                            'units_in_package' => $unitsToAdd,
                             'real_weight_unit' => $metricsMap[$id_product]['real_weight_unit'],
                             'volumetric_weight_unit' => $metricsMap[$id_product]['volumetric_weight_unit'],
                             'price' => $metricsMap[$id_product]['price']
+                        ];
+                    }
+
+                    $packages[$bestPackageIdx]['total_weight'] += $unitsToAdd * $unitWeight;
+                    $remainingUnits -= $unitsToAdd;
+                } else {
+                    // Crear nuevo paquete
+                    $unitsForNewPackage = min(
+                        (int) floor($this->maxWeightPerPackage / $unitWeight),
+                        $remainingUnits
+                    );
+
+                    $packages[] = [
+                        'package_id' => 'grouped_' . $packageIdCounter++,
+                        'package_type' => 'grouped',
+                        'total_weight' => $unitsForNewPackage * $unitWeight,
+                        'items' => [
+                            [
+                                'id_product' => $id_product,
+                                'units_in_package' => $unitsForNewPackage,
+                                'real_weight_unit' => $metricsMap[$id_product]['real_weight_unit'],
+                                'volumetric_weight_unit' => $metricsMap[$id_product]['volumetric_weight_unit'],
+                                'price' => $metricsMap[$id_product]['price']
+                            ]
                         ]
-                    ]
-                ];
+                    ];
+
+                    $remainingUnits -= $unitsForNewPackage;
+                }
             }
         }
 
@@ -187,14 +218,14 @@ class ShippingGroupedPackageService
     }
 
     /**
-     * Busca el mejor paquete donde quepa UN PRODUCTO COMPLETO sin dividirlo
+     * Busca el mejor paquete donde quepa al menos una unidad del producto
      *
      * @param array $packages - Lista de paquetes actuales
-     * @param float $productTotalWeight - Peso TOTAL del producto (todas sus unidades)
+     * @param float $unitWeight - Peso de una unidad del producto
      *
      * @return int|null - Índice del mejor paquete, o null si no cabe en ninguno
      */
-    private function findBestFitPackageForProduct(array $packages, $productTotalWeight)
+    private function findBestFitPackageForUnits(array $packages, $unitWeight)
     {
         $bestIdx = null;
         $bestFreeSpace = PHP_INT_MAX;
@@ -202,14 +233,11 @@ class ShippingGroupedPackageService
         foreach ($packages as $idx => $package) {
             $availableSpace = $this->maxWeightPerPackage - $package['total_weight'];
 
-            // ¿Cabe el PRODUCTO COMPLETO?
-            if ($availableSpace >= $productTotalWeight) {
-                // Espacio que quedará después de agregar el producto completo
-                $spaceAfter = $availableSpace - $productTotalWeight;
-
+            // ¿Cabe al menos una unidad?
+            if ($availableSpace >= $unitWeight) {
                 // ¿Es mejor ajuste que el anterior?
-                if ($spaceAfter < $bestFreeSpace) {
-                    $bestFreeSpace = $spaceAfter;
+                if ($availableSpace < $bestFreeSpace) {
+                    $bestFreeSpace = $availableSpace;
                     $bestIdx = $idx;
                 }
             }

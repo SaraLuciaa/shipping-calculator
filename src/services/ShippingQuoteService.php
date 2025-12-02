@@ -113,13 +113,23 @@ class ShippingQuoteService
             }
 
             // volumétrico por separado (regla estándar por ahora)
-            $volWeight = $this->weightCalc->volumetricWeight($p_length, $p_width, $p_height, $kgVol['value_number']) * $qty;
+            $unitVolWeight = $this->weightCalc->volumetricWeight($p_length, $p_width, $p_height, $kgVol['value_number']);
+            $volWeight = $unitVolWeight * $qty;
+            
             $billable = $this->weightCalc->billableWeight($p_weight, $volWeight);
 
             if ($type === CarrierRateTypeService::RATE_TYPE_PER_KG) {
                 $shippingCost = $this->calculatePerKg($id_carrier, $id_city, $billable);
             } else {
-                $shippingCost = $this->calculateRange($id_carrier, $id_city, $billable);
+                // Calculo por rango: Precio unitario * Cantidad
+                $unitBillable = $this->weightCalc->billableWeight((float)$product->weight, $unitVolWeight);
+                $unitCost = $this->calculateRange($id_carrier, $id_city, $unitBillable);
+                
+                if ($unitCost !== null) {
+                    $shippingCost = $unitCost * $qty;
+                } else {
+                    $shippingCost = null;
+                }
             }
 
             if ($shippingCost !== null) {
@@ -518,7 +528,7 @@ class ShippingQuoteService
                 FROM " . _DB_PREFIX_ . "shipping_config
                 WHERE id_carrier = " . (int) $id_carrier . "
                   AND name = 'Seguro'
-                  AND min <= " . (float) $weight . "
+                  AND min < " . (float) $weight . "
                   AND (max >= " . (float) $weight . " OR max = 0)
                   AND min > 0
             ");
@@ -535,7 +545,7 @@ class ShippingQuoteService
             FROM " . _DB_PREFIX_ . "shipping_config
             WHERE id_carrier = " . (int) $id_carrier . "
               AND name = 'Seguro'
-              AND min <= " . (float) $weight . "
+              AND (min < " . (float) $weight . " OR min = 0)
               AND (max >= " . (float) $weight . " OR max = 0)
         ");
 
@@ -667,7 +677,7 @@ class ShippingQuoteService
             WHERE id_carrier = " . (int) $id_carrier . "
               AND id_city = " . (int) $id_city . "
               AND active = 1
-              AND min_weight <= " . (float) $weight . "
+              AND (min_weight < " . (float) $weight . " OR min_weight = 0)
               AND (max_weight = 0 OR max_weight >= " . (float) $weight . ")
             ORDER BY min_weight DESC
         ");
