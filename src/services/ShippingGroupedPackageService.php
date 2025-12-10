@@ -110,10 +110,11 @@ class ShippingGroupedPackageService
     }
 
     /**
-     * Implementa best-fit packing permitiendo dividir productos
+     * Implementa best-fit packing con regla híbrida
      * 
-     * Regla: Las unidades de un mismo producto se pueden dividir en múltiples paquetes.
-     * Se colocan tantas unidades como quepan en cada paquete hasta completar la cantidad.
+     * Regla:
+     * - Si el peso total de un producto < 60kg: Todas las unidades van en UN SOLO paquete.
+     * - Si el peso total de un producto >= 60kg: Se divide en múltiples paquetes de 60kg.
      */
     private function bestFitPackingWithIndividuals(array $products)
     {
@@ -131,6 +132,7 @@ class ShippingGroupedPackageService
             $id_product = $product['id_product'];
             $quantity = $product['quantity'];
             $unitWeight = $product['weight_unit'];
+            $totalWeight = $product['total_weight'];
 
             // Si una SOLA UNIDAD pesa más de 60kg, marcar para tratamiento individual
             if ($unitWeight > $this->maxWeightPerPackage) {
@@ -143,70 +145,101 @@ class ShippingGroupedPackageService
                 continue;
             }
 
-            // Distribuir unidades en paquetes
-            $remainingUnits = $quantity;
-
-            while ($remainingUnits > 0) {
-                // Buscar el mejor paquete donde quepan al menos 1 unidad
-                $bestPackageIdx = $this->findBestFitPackageForUnits(
-                    $packages,
-                    $unitWeight
-                );
+            // REGLA: Si el peso total < 60kg, todas las unidades van juntas
+            if ($totalWeight < $this->maxWeightPerPackage) {
+                // Buscar el mejor paquete existente donde quepa el producto completo
+                $bestPackageIdx = $this->findBestFitPackageForProduct($packages, $totalWeight);
 
                 if ($bestPackageIdx !== null) {
-                    // Calcular cuántas unidades caben en el espacio disponible
-                    $availableSpace = $this->maxWeightPerPackage - $packages[$bestPackageIdx]['total_weight'];
-                    $unitsThatFit = (int) floor($availableSpace / $unitWeight);
-                    $unitsToAdd = min($unitsThatFit, $remainingUnits);
-
-                    // Verificar si ya existe este producto en el paquete
-                    $existingItemIdx = null;
-                    foreach ($packages[$bestPackageIdx]['items'] as $idx => $item) {
-                        if ($item['id_product'] === $id_product) {
-                            $existingItemIdx = $idx;
-                            break;
-                        }
-                    }
-
-                    if ($existingItemIdx !== null) {
-                        // Incrementar unidades del producto existente
-                        $packages[$bestPackageIdx]['items'][$existingItemIdx]['units_in_package'] += $unitsToAdd;
-                    } else {
-                        // Agregar nuevo producto al paquete
-                        $packages[$bestPackageIdx]['items'][] = [
-                            'id_product' => $id_product,
-                            'units_in_package' => $unitsToAdd,
-                            'real_weight_unit' => $metricsMap[$id_product]['real_weight_unit'],
-                            'volumetric_weight_unit' => $metricsMap[$id_product]['volumetric_weight_unit'],
-                            'price' => $metricsMap[$id_product]['price']
-                        ];
-                    }
-
-                    $packages[$bestPackageIdx]['total_weight'] += $unitsToAdd * $unitWeight;
-                    $remainingUnits -= $unitsToAdd;
+                    // Cabe completo en un paquete existente
+                    $packages[$bestPackageIdx]['items'][] = [
+                        'id_product' => $id_product,
+                        'units_in_package' => $quantity,
+                        'real_weight_unit' => $metricsMap[$id_product]['real_weight_unit'],
+                        'volumetric_weight_unit' => $metricsMap[$id_product]['volumetric_weight_unit'],
+                        'price' => $metricsMap[$id_product]['price']
+                    ];
+                    $packages[$bestPackageIdx]['total_weight'] += $totalWeight;
                 } else {
-                    // Crear nuevo paquete
-                    $unitsForNewPackage = min(
-                        (int) floor($this->maxWeightPerPackage / $unitWeight),
-                        $remainingUnits
-                    );
-
+                    // Crear nuevo paquete para el producto completo
                     $packages[] = [
                         'package_id' => 'grouped_' . $packageIdCounter++,
                         'package_type' => 'grouped',
-                        'total_weight' => $unitsForNewPackage * $unitWeight,
+                        'total_weight' => $totalWeight,
                         'items' => [
                             [
                                 'id_product' => $id_product,
-                                'units_in_package' => $unitsForNewPackage,
+                                'units_in_package' => $quantity,
                                 'real_weight_unit' => $metricsMap[$id_product]['real_weight_unit'],
                                 'volumetric_weight_unit' => $metricsMap[$id_product]['volumetric_weight_unit'],
                                 'price' => $metricsMap[$id_product]['price']
                             ]
                         ]
                     ];
+                }
+            } else {
+                // REGLA: Si el peso total >= 60kg, dividir en paquetes de 60kg
+                $remainingUnits = $quantity;
 
-                    $remainingUnits -= $unitsForNewPackage;
+                while ($remainingUnits > 0) {
+                    // Buscar el mejor paquete donde quepan al menos 1 unidad
+                    $bestPackageIdx = $this->findBestFitPackageForUnits($packages, $unitWeight);
+
+                    if ($bestPackageIdx !== null) {
+                        // Calcular cuántas unidades caben en el espacio disponible
+                        $availableSpace = $this->maxWeightPerPackage - $packages[$bestPackageIdx]['total_weight'];
+                        $unitsThatFit = (int) floor($availableSpace / $unitWeight);
+                        $unitsToAdd = min($unitsThatFit, $remainingUnits);
+
+                        // Verificar si ya existe este producto en el paquete
+                        $existingItemIdx = null;
+                        foreach ($packages[$bestPackageIdx]['items'] as $idx => $item) {
+                            if ($item['id_product'] === $id_product) {
+                                $existingItemIdx = $idx;
+                                break;
+                            }
+                        }
+
+                        if ($existingItemIdx !== null) {
+                            // Incrementar unidades del producto existente
+                            $packages[$bestPackageIdx]['items'][$existingItemIdx]['units_in_package'] += $unitsToAdd;
+                        } else {
+                            // Agregar nuevo producto al paquete
+                            $packages[$bestPackageIdx]['items'][] = [
+                                'id_product' => $id_product,
+                                'units_in_package' => $unitsToAdd,
+                                'real_weight_unit' => $metricsMap[$id_product]['real_weight_unit'],
+                                'volumetric_weight_unit' => $metricsMap[$id_product]['volumetric_weight_unit'],
+                                'price' => $metricsMap[$id_product]['price']
+                            ];
+                        }
+
+                        $packages[$bestPackageIdx]['total_weight'] += $unitsToAdd * $unitWeight;
+                        $remainingUnits -= $unitsToAdd;
+                    } else {
+                        // Crear nuevo paquete
+                        $unitsForNewPackage = min(
+                            (int) floor($this->maxWeightPerPackage / $unitWeight),
+                            $remainingUnits
+                        );
+
+                        $packages[] = [
+                            'package_id' => 'grouped_' . $packageIdCounter++,
+                            'package_type' => 'grouped',
+                            'total_weight' => $unitsForNewPackage * $unitWeight,
+                            'items' => [
+                                [
+                                    'id_product' => $id_product,
+                                    'units_in_package' => $unitsForNewPackage,
+                                    'real_weight_unit' => $metricsMap[$id_product]['real_weight_unit'],
+                                    'volumetric_weight_unit' => $metricsMap[$id_product]['volumetric_weight_unit'],
+                                    'price' => $metricsMap[$id_product]['price']
+                                ]
+                            ]
+                        ];
+
+                        $remainingUnits -= $unitsForNewPackage;
+                    }
                 }
             }
         }
@@ -215,6 +248,38 @@ class ShippingGroupedPackageService
             'grouped_packages' => $packages,
             'individual_products' => $forIndividualTreatment
         ];
+    }
+
+    /**
+     * Busca el mejor paquete donde quepa UN PRODUCTO COMPLETO sin dividirlo
+     *
+     * @param array $packages - Lista de paquetes actuales
+     * @param float $productTotalWeight - Peso TOTAL del producto (todas sus unidades)
+     *
+     * @return int|null - Índice del mejor paquete, o null si no cabe en ninguno
+     */
+    private function findBestFitPackageForProduct(array $packages, $productTotalWeight)
+    {
+        $bestIdx = null;
+        $bestFreeSpace = PHP_INT_MAX;
+
+        foreach ($packages as $idx => $package) {
+            $availableSpace = $this->maxWeightPerPackage - $package['total_weight'];
+
+            // ¿Cabe el PRODUCTO COMPLETO?
+            if ($availableSpace >= $productTotalWeight) {
+                // Espacio que quedará después de agregar el producto completo
+                $spaceAfter = $availableSpace - $productTotalWeight;
+
+                // ¿Es mejor ajuste que el anterior?
+                if ($spaceAfter < $bestFreeSpace) {
+                    $bestFreeSpace = $spaceAfter;
+                    $bestIdx = $idx;
+                }
+            }
+        }
+
+        return $bestIdx;
     }
 
     /**

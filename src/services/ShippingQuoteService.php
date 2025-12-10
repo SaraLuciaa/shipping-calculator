@@ -138,7 +138,10 @@ class ShippingQuoteService
 
                 // Calcular valor total del paquete para seguro
                 $totalValue = (float) $product->price * $qty;
-                $insuranceCost = $this->calculateInsuranceCost($id_carrier, $billable, $totalValue);
+                
+                // Para el seguro, usar peso unitario
+                $unitBillable = $this->weightCalc->billableWeight((float)$product->weight, $unitVolWeight);
+                $insuranceCost = $this->calculateInsuranceCost($id_carrier, $type, $unitBillable, $totalValue);
 
                 $totalPrice = $shippingCost + $packagingCost + $insuranceCost;
 
@@ -463,7 +466,7 @@ class ShippingQuoteService
             if ($shippingCost !== null) {
                 $shippingCost = (float) $shippingCost;
                 $packagingCost = $this->calculatePackagingCost($shippingCost);
-                $insuranceCost = $this->calculateInsuranceCost($id_carrier, $weight, $declaredValue);
+                $insuranceCost = $this->calculateInsuranceCost($id_carrier, $type, $weight, $declaredValue);
 
                 $totalPrice = $shippingCost + $packagingCost + $insuranceCost;
 
@@ -507,51 +510,51 @@ class ShippingQuoteService
 
     /**
      * Calcula costo de seguro
+     * 
+     * Por Rango: Busca en rangos de PESO y aplica porcentaje sobre valor declarado
+     * Por Kg: Busca en rangos de VALOR DECLARADO y aplica valor fijo o porcentaje
      */
-    private function calculateInsuranceCost($id_carrier, $weight, $declaredValue)
+    private function calculateInsuranceCost($id_carrier, $carrierType, $weight, $declaredValue)
     {
-        // CASO B: Seguro mixto (min = 0)
-        $mixedMin = Db::getInstance()->getRow("
-            SELECT value_number
-            FROM " . _DB_PREFIX_ . "shipping_config
-            WHERE id_carrier = " . (int) $id_carrier . "
-              AND name = 'Seguro'
-              AND min = 0
-        ");
-
-        if ($mixedMin) {
-            $minInsurance = (float) $mixedMin['value_number'];
-
-            // Buscar porcentaje para el rango de peso (FIX: usando <= en lugar de <)
-            $percentageRow = Db::getInstance()->getRow("
+        if ($carrierType === CarrierRateTypeService::RATE_TYPE_RANGE) {
+            // TRANSPORTADORAS POR RANGO: Seguro por rangos de PESO
+            $rangeRow = Db::getInstance()->getRow("
                 SELECT value_number
                 FROM " . _DB_PREFIX_ . "shipping_config
                 WHERE id_carrier = " . (int) $id_carrier . "
                   AND name = 'Seguro'
-                  AND min < " . (float) $weight . "
-                  AND (max >= " . (float) $weight . " OR max = 0)
-                  AND min > 0
+                  AND min <= " . (float) $weight . "
+                  AND (max >= " . (float) $weight . " OR max IS NULL OR max = 0)
+                ORDER BY min DESC
             ");
 
-            $percentage = $percentageRow ? (float) $percentageRow['value_number'] : 0.0;
-            $calculatedInsurance = $declaredValue * ($percentage / 100);
+            if ($rangeRow) {
+                $percentage = (float) $rangeRow['value_number'];
+                return $declaredValue * ($percentage / 100);
+            }
+        } else {
+            // TRANSPORTADORAS POR KG: Seguro por rangos de VALOR DECLARADO
+            $rangeRow = Db::getInstance()->getRow("
+                SELECT value_number, min, max
+                FROM " . _DB_PREFIX_ . "shipping_config
+                WHERE id_carrier = " . (int) $id_carrier . "
+                  AND name = 'Seguro'
+                  AND min <= " . (float) $declaredValue . "
+                  AND (max >= " . (float) $declaredValue . " OR max IS NULL OR max = 0)
+                ORDER BY min DESC
+            ");
 
-            return max($minInsurance, $calculatedInsurance);
-        }
-
-        // CASO A: Por rangos de peso (FIX: usando <= en lugar de <)
-        $rangeRow = Db::getInstance()->getRow("
-            SELECT value_number
-            FROM " . _DB_PREFIX_ . "shipping_config
-            WHERE id_carrier = " . (int) $id_carrier . "
-              AND name = 'Seguro'
-              AND (min < " . (float) $weight . " OR min = 0)
-              AND (max >= " . (float) $weight . " OR max = 0)
-        ");
-
-        if ($rangeRow) {
-            $percentage = (float) $rangeRow['value_number'];
-            return $declaredValue * ($percentage / 100);
+            if ($rangeRow) {
+                $valueNumber = (float) $rangeRow['value_number'];
+                
+                // Si value_number >= 100, es valor fijo en pesos
+                // Si value_number < 100, es porcentaje
+                if ($valueNumber >= 100) {
+                    return $valueNumber;  // Valor fijo
+                } else {
+                    return $declaredValue * ($valueNumber / 100);  // Porcentaje
+                }
+            }
         }
 
         return 0.0;
