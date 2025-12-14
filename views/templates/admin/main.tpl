@@ -21,6 +21,12 @@
       </a>
 
       <a href="#"
+         class="list-group-item {if $active_panel=='panel-config'}active{/if}"
+         data-panel="panel-config">
+        <i class="icon-cogs"></i> Configuración
+      </a>
+
+      <a href="#"
          class="list-group-item {if $active_panel=='panel-help'}active{/if}"
          data-panel="panel-help">
         <i class="icon-info-circle"></i> Ayuda
@@ -50,6 +56,13 @@
          class="panel panel-default panel-body"
          style="{if $active_panel=='panel-quote'}display:block;{else}display:none;{/if}">
       {include file="./quote.tpl"}
+    </div>
+
+    <!-- PANEL: CONFIGURACIÓN -->
+    <div id="panel-config"
+         class="panel panel-default panel-body"
+         style="{if $active_panel=='panel-config'}display:block;{else}display:none;{/if}">
+      {include file="./configure.tpl"}
     </div>
 
     <!-- PANEL: AYUDA -->

@@ -15,47 +15,6 @@ class ShippingQuoteService
         $this->carrierRegistry = $carrierRegistry;
         $this->weightCalc = $weightCalc;
         $this->groupedPackageService = new ShippingGroupedPackageService();
-
-        $this->checkAndSeedConfig();
-    }
-
-    private function checkAndSeedConfig()
-    {
-        $count = (int) Db::getInstance()->getValue("SELECT COUNT(*) FROM " . _DB_PREFIX_ . "shipping_config");
-
-        if ($count === 0) {
-            // Seed Packaging (Global)
-            Db::getInstance()->execute("
-                INSERT INTO " . _DB_PREFIX_ . "shipping_config (id_carrier, name, value_number)
-                VALUES (0, 'Empaque', 5.00)
-            ");
-
-            // Seed Volumetric Factor (Global)
-            Db::getInstance()->execute("
-                INSERT INTO " . _DB_PREFIX_ . "shipping_config (id_carrier, name, value_number)
-                VALUES (0, 'Peso volumetrico', 5000)
-            ");
-
-            // Get active carriers to seed insurance
-            $carriers = $this->carrierRegistry->getAllRegistered();
-            foreach ($carriers as $carrier) {
-                $id_carrier = (int) $carrier['id_carrier'];
-
-                // Seed Insurance (Range based example)
-                Db::getInstance()->execute("
-                    INSERT INTO " . _DB_PREFIX_ . "shipping_config (id_carrier, name, min, max, value_number)
-                    VALUES 
-                    ($id_carrier, 'Seguro', 0, 10000, 1.00)
-                ");
-
-                // Seed Insurance Min (Mixed case example)
-                Db::getInstance()->execute("
-                    INSERT INTO " . _DB_PREFIX_ . "shipping_config (id_carrier, name, min, max, value_number)
-                    VALUES 
-                    ($id_carrier, 'Seguro', 0, 0, 1000.00)
-                ");
-            }
-        }
     }
 
     /**

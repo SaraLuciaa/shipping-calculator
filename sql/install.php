@@ -101,6 +101,57 @@ $sql[] = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'shipping_config` (
     PRIMARY KEY (`id_config`)
 ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4;';
 
+/**
+ * TABLA: shipping_calculator_cache
+ * Cache temporal para cotizaciones durante checkout
+ */
+$sql[] = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'shipping_calculator_cache` (
+    `id_cache` INT(11) NOT NULL AUTO_INCREMENT,
+    `cache_key` VARCHAR(255) NOT NULL,
+    `cache_value` TEXT NOT NULL,
+    `date_add` DATETIME NOT NULL,
+    PRIMARY KEY (`id_cache`),
+    UNIQUE KEY `cache_key` (`cache_key`),
+    INDEX `date_add` (`date_add`)
+) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4;';
+
+/**
+ * TABLA: shipping_order_packages
+ * Desglose de paquetes por pedido
+ */
+$sql[] = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'shipping_order_packages` (
+    `id_package` INT(11) NOT NULL AUTO_INCREMENT,
+    `id_order` INT(11) NOT NULL,
+    `package_type` VARCHAR(20) NOT NULL,
+    `package_number` INT(11) NOT NULL,
+    `carrier_name` VARCHAR(255) NULL,
+    `total_weight` DECIMAL(10,3) NULL,
+    `shipping_cost` DECIMAL(10,2) NULL,
+    `packaging_cost` DECIMAL(10,2) NULL,
+    `insurance_cost` DECIMAL(10,2) NULL,
+    `total_cost` DECIMAL(10,2) NULL,
+    `date_add` DATETIME NULL,
+    PRIMARY KEY (`id_package`),
+    INDEX `id_order` (`id_order`)
+) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4;';
+
+/**
+ * TABLA: shipping_order_package_items
+ * Items dentro de cada paquete
+ */
+$sql[] = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'shipping_order_package_items` (
+    `id_package_item` INT(11) NOT NULL AUTO_INCREMENT,
+    `id_package` INT(11) NOT NULL,
+    `id_product` INT(11) NOT NULL,
+    `product_name` VARCHAR(255) NULL,
+    `quantity` INT(11) NOT NULL,
+    `weight_real_unit` DECIMAL(10,3) NULL,
+    `weight_vol_unit` DECIMAL(10,3) NULL,
+    `price_unit` DECIMAL(10,2) NULL,
+    PRIMARY KEY (`id_package_item`),
+    INDEX `id_package` (`id_package`)
+) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4;';
+
 /** Ejecutar instalación */
 foreach ($sql as $query) {
     if (!Db::getInstance()->execute($query)) {

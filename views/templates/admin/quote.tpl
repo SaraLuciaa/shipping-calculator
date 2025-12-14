@@ -1,10 +1,25 @@
 {* views/templates/admin/quote.tpl *}
 
+{* Select2 CSS *}
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<style>
+  .select2-container {
+    width: 100% !important;
+  }
+  .select2-container .select2-selection--single {
+    height: 36px;
+    padding: 5px;
+  }
+  .select2-container--default .select2-selection--single .select2-selection__rendered {
+    line-height: 24px;
+  }
+  .select2-container--default .select2-selection--single .select2-selection__arrow {
+    height: 34px;
+  }
+</style>
+
 <div class="panel">
   <h3><i class="icon-calculator"></i> Cotizador de Envíos</h3>
-  <p class="help-block">
-    Selecciona uno o varios productos y la ciudad destino para calcular tarifas disponibles según cobertura.
-  </p>
 
   <form method="post" action="{$currentIndex}&token={$token}" class="form-horizontal" id="quote-form">
 
@@ -37,7 +52,7 @@
     <div class="form-group">
       <label class="control-label col-lg-3">Ciudad destino</label>
       <div class="col-lg-9">
-        <select name="id_city" class="form-control" required>
+        <select name="id_city" id="city-select" class="form-control" required>
           <option value="">-- Selecciona --</option>
           {foreach $cities as $c}
             <option value="{$c.id_city}"
@@ -318,5 +333,83 @@
     // populate existing selects on load
     var initialSelects = document.querySelectorAll('.product-select');
     for (var i=0;i<initialSelects.length;i++) populateSelects(initialSelects[i]);
+    
+    // Initialize Select2 on existing product selects
+    setTimeout(function() {
+      $('.product-select').each(function() {
+        if (!$(this).hasClass('select2-hidden-accessible')) {
+          $(this).select2({
+            placeholder: '-- Buscar producto --',
+            allowClear: true,
+            language: {
+              noResults: function() {
+                return 'No se encontraron productos';
+              },
+              searching: function() {
+                return 'Buscando...';
+              },
+              inputTooShort: function() {
+                return 'Escribe para buscar';
+              }
+            }
+          });
+        }
+      });
+    }, 100);
   })();
+  
+  // Initialize Select2 on city select
+  $(document).ready(function() {
+    $('#city-select').select2({
+      placeholder: '-- Buscar ciudad --',
+      allowClear: true,
+      language: {
+        noResults: function() {
+          return 'No se encontró la ciudad';
+        },
+        searching: function() {
+          return 'Buscando...';
+        },
+        inputTooShort: function() {
+          return 'Escribe para buscar';
+        }
+      }
+    });
+    
+    // Re-initialize Select2 when new product row is added
+    $('#add-product').on('click', function() {
+      setTimeout(function() {
+        $('.product-select').each(function() {
+          if (!$(this).hasClass('select2-hidden-accessible')) {
+            $(this).select2({
+              placeholder: '-- Buscar producto --',
+              allowClear: true,
+              language: {
+                noResults: function() {
+                  return 'No se encontraron productos';
+                },
+                searching: function() {
+                  return 'Buscando...';
+                },
+                inputTooShort: function() {
+                  return 'Escribe para buscar';
+                }
+              }
+            });
+          }
+        });
+      }, 100);
+    });
+    
+    // Destroy Select2 when removing product row
+    $(document).on('click', '.remove-product', function() {
+      var $select = $(this).closest('.product-row').find('.product-select');
+      if ($select.hasClass('select2-hidden-accessible')) {
+        $select.select2('destroy');
+      }
+    });
+  });
 </script>
+
+{* Select2 JS Library *}
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>

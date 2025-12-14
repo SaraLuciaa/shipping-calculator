@@ -32,11 +32,14 @@
 
 $sql = array();
 
-$sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_config`;';
-$sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_product`;';
-$sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_rate_type`;';
-$sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_per_kg_rate`;';
-$sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_range_rate`;';
+// $sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_order_package_items`;';
+// $sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_order_packages`;';
+// $sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_calculator_cache`;';
+// $sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_config`;';
+// $sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_product`;';
+// $sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_rate_type`;';
+// $sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_per_kg_rate`;';
+// $sql[] = 'DROP TABLE IF EXISTS `'._DB_PREFIX_.'shipping_range_rate`;';
 
 foreach ($sql as $query) {
     if (!Db::getInstance()->execute($query)) {
