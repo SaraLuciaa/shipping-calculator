@@ -25,3 +25,46 @@
 * Don't forget to prefix your containers with your own identifier
 * to avoid any conflicts with others containers.
 */
+
+/* Estilos para el mensaje de cálculo de envío */
+.shipping-calculator-message {
+    margin-top: 5px;
+    padding: 8px 12px;
+    background-color: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.shipping-calculator-message.calculated {
+    background-color: #d4edda;
+    border-color: #28a745;
+    color: #155724;
+}
+
+.shipping-calculator-message.pending {
+    background-color: #fff3cd;
+    border-color: #ffc107;
+    color: #856404;
+}
+
+/* Personalización del precio del carrier cuando está "Por calcular" */
+.delivery-option .carrier-price.pending::after {
+    content: " - Por calcular";
+    font-style: italic;
+    color: #f39c12;
+    font-size: 0.9em;
+}
+
+/* Para PrestaShop 1.7+ */
+.js-delivery-option .carrier-price.shipping-pending::after {
+    content: "Por calcular";
+    font-style: italic;
+    color: #f39c12;
+}
+
+/* Ocultar el precio fijo cuando está pendiente */
+.carrier-price.shipping-pending .price-value {
+    display: none;
+}

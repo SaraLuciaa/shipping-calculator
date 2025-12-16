@@ -1,6 +1,9 @@
 <?php
 
 require_once _PS_MODULE_DIR_ . 'shipping_calculator/src/services/ShippingGroupedPackageService.php';
+require_once _PS_MODULE_DIR_ . 'shipping_calculator/src/services/CarrierRateTypeService.php';
+require_once _PS_MODULE_DIR_ . 'shipping_calculator/src/services/WeightCalculatorService.php';
+
 
 class ShippingQuoteService
 {
@@ -17,16 +20,12 @@ class ShippingQuoteService
         $this->groupedPackageService = new ShippingGroupedPackageService();
     }
 
-    /**
-     * Cotiza envío para un producto y ciudad.
-     * Pasos:
-     * 1. Buscar carriers con cobertura para la ciudad
-     * 2. Calcular peso volumétrico y real
-     * 3. Tomar el mayor y cotizar según tipo
-     * 4. Retornar listado
-     */
     public function quote($id_product, $id_city, $qty = 1)
     {
+        if ((int)$id_city <= 0) {
+            return [];
+        }
+
         $id_product = (int) $id_product;
         $id_city = (int) $id_city;
         $qty = max(1, (int) $qty);
@@ -42,79 +41,87 @@ class ShippingQuoteService
         $p_width = (float) $product->width;          // cm
         $p_height = (float) $product->height;         // cm
         $p_length = (float) $product->depth;          // cm
-
+        
         // --------------- 1. carriers con cobertura -----------------
         $carriersWithCoverage = $this->getCarriersWithCityCoverage($id_city);
 
         if (!$carriersWithCoverage) {
-            return []; // nadie cubre Bogotá (o el id no coincide en tarifas)
+            return [];
         }
 
         // --------------- 3 y 4. cotizar -----------------
         $quotes = [];
 
         foreach ($carriersWithCoverage as $carrier) {
-
-            $id_carrier = (int) $carrier['id_carrier'];
-            $type = $carrier['type'];
-
-            $kgVol = Db::getInstance()->getRow("
-                SELECT value_number
-                FROM " . _DB_PREFIX_ . "shipping_config
-                WHERE name = 'Peso volumetrico'
-                  AND id_carrier = " . (int) $id_carrier . "
-            ");
-
-            if (!$kgVol || !isset($kgVol['value_number'])) {
-                $kgVol = ['value_number' => 5000];
-            } else {
-                $kgVol['value_number'] = (int) $kgVol['value_number'];
-            }
-
-            // volumétrico por separado (regla estándar por ahora)
-            $unitVolWeight = $this->weightCalc->volumetricWeight($p_length, $p_width, $p_height, $kgVol['value_number']);
-            $volWeight = $unitVolWeight * $qty;
-            
-            $billable = $this->weightCalc->billableWeight($p_weight, $volWeight);
-
-            if ($type === CarrierRateTypeService::RATE_TYPE_PER_KG) {
-                $shippingCost = $this->calculatePerKg($id_carrier, $id_city, $billable);
-            } else {
-                // Calculo por rango: Precio unitario * Cantidad
-                $unitBillable = $this->weightCalc->billableWeight((float)$product->weight, $unitVolWeight);
-                $unitCost = $this->calculateRange($id_carrier, $id_city, $unitBillable);
+            try {
+                $id_carrier = (int) $carrier['id_carrier'];
+                $type = $carrier['type'];
                 
-                if ($unitCost !== null) {
-                    $shippingCost = $unitCost * $qty;
+                $kgVol = Db::getInstance()->getRow("
+                    SELECT value_number
+                    FROM " . _DB_PREFIX_ . "shipping_config
+                    WHERE name = 'Peso volumetrico'
+                    AND id_carrier = " . (int) $id_carrier . "
+                ");
+
+                if (!$kgVol || !isset($kgVol['value_number'])) {
+                    $kgVol = ['value_number' => 5000];
                 } else {
-                    $shippingCost = null;
+                    $kgVol['value_number'] = (int) $kgVol['value_number'];
                 }
-            }
 
-            if ($shippingCost !== null) {
-                $shippingCost = (float) $shippingCost;
-                $packagingCost = $this->calculatePackagingCost($shippingCost);
-
-                // Calcular valor total del paquete para seguro
-                $totalValue = (float) $product->price * $qty;
+                $unitVolWeight = $this->weightCalc->volumetricWeight($p_length, $p_width, $p_height, $kgVol['value_number']);
                 
-                // Para el seguro, usar peso unitario
-                $unitBillable = $this->weightCalc->billableWeight((float)$product->weight, $unitVolWeight);
-                $insuranceCost = $this->calculateInsuranceCost($id_carrier, $type, $unitBillable, $totalValue);
+                $volWeight = $unitVolWeight * $qty;
+                
+                $billable = $this->weightCalc->billableWeight($p_weight, $volWeight);
+                
+                $shippingCost = null;
+                
+                // CAMBIO: Usar comparación de strings directa en lugar de constantes
+                if ($type === 'per_kg') {
+                    $shippingCost = $this->calculatePerKg($id_carrier, $id_city, $billable);
+                    
+                } elseif ($type === 'range') {
+                    $unitBillable = $this->weightCalc->billableWeight((float)$product->weight, $unitVolWeight);
+                    
+                    $unitCost = $this->calculateRange($id_carrier, $id_city, $unitBillable);
+                    
+                    if ($unitCost !== null) {
+                        $shippingCost = $unitCost * $qty;
+                    }
+                }
+                
+                if ($shippingCost !== null && $shippingCost > 0) {
+                    $shippingCost = (float) $shippingCost;
+                    
+                    $packagingCost = $this->calculatePackagingCost($shippingCost);
 
-                $totalPrice = $shippingCost + $packagingCost + $insuranceCost;
+                    // Calcular valor total del paquete para seguro
+                    $totalValue = (float) $product->price * $qty;
+                    
+                    // Para el seguro, usar peso unitario
+                    $unitBillableForInsurance = isset($unitBillable) ? $unitBillable : $this->weightCalc->billableWeight((float)$product->weight, $unitVolWeight);
+                    
+                    $insuranceCost = $this->calculateInsuranceCost($id_carrier, $type, $unitBillableForInsurance, $totalValue);
 
-                $quotes[] = [
-                    'carrier' => $carrier['name'],
-                    'type' => $type,
-                    'price' => $totalPrice, // Precio total para ordenamiento
-                    'shipping_cost' => $shippingCost,
-                    'packaging_cost' => $packagingCost,
-                    'insurance_cost' => $insuranceCost,
-                    'weight_real' => $p_weight,
-                    'weight_vol' => $volWeight,
-                    'weight_billable' => $billable,
-                ];
+                    $totalPrice = $shippingCost + $packagingCost + $insuranceCost;
+
+                    $quotes[] = [
+                        'carrier' => $carrier['name'],
+                        'type' => $type,
+                        'price' => $totalPrice,
+                        'shipping_cost' => $shippingCost,
+                        'packaging_cost' => $packagingCost,
+                        'insurance_cost' => $insuranceCost,
+                        'weight_real' => $p_weight,
+                        'weight_vol' => $volWeight,
+                        'weight_billable' => $billable,
+                    ];
+                }
+                
+            } catch (Exception $e) {
+                continue;
             }
         }
 
@@ -124,7 +131,6 @@ class ShippingQuoteService
 
         return $quotes;
     }
-
     /**
      * Cotiza múltiples productos (array de items ['id_product'=>, 'qty'=>])
      * Retorna detalle por producto con la cotización más barata y el total acumulado.
@@ -207,6 +213,16 @@ class ShippingQuoteService
      */
     public function quoteMultipleWithGrouped(array $items, $id_city)
     {
+        if ((int)$id_city <= 0 || empty($items)) {
+            return [
+                'grouped_packages' => [],
+                'individual_items' => [],
+                'total_grouped' => 0.0,
+                'total_individual' => 0.0,
+                'grand_total' => 0.0
+            ];
+        }
+        
         $lang_id = Context::getContext()->language->id;
         $id_city = (int) $id_city;
 
@@ -223,8 +239,9 @@ class ShippingQuoteService
                 continue;
 
             $product = new Product($id_product);
-            if (!Validate::isLoadedObject($product))
+            if (!Validate::isLoadedObject($product)) {
                 continue;
+            }
 
             // Obtener nombre en el idioma actual
             $productName = $this->getProductName($id_product, $lang_id);
@@ -298,7 +315,7 @@ class ShippingQuoteService
             foreach ($individualItems as $item) {
                 $id_product = $item['id_product'];
                 $qty = $item['qty'];
-
+                
                 $quotes = $this->quote($id_product, $id_city, $qty);
 
                 $cheapest = null;
@@ -400,6 +417,10 @@ class ShippingQuoteService
      */
     private function quoteByWeight($weight, $id_city, $declaredValue = 0.0)
     {
+        if ((int)$id_city <= 0) {
+            return [];
+        }
+
         $id_city = (int) $id_city;
         $weight = (float) $weight;
         $declaredValue = (float) $declaredValue;
@@ -609,15 +630,16 @@ class ShippingQuoteService
               AND active = 1
         ");
 
+        if (!$row) {
+            return null;
+        }
+
         $min = Db::getInstance()->getRow("
             SELECT value_number
             FROM " . _DB_PREFIX_ . "shipping_config
             WHERE name = 'Flete minimo'
             AND id_carrier = " . (int) $id_carrier . "
         ");
-
-        if (!$row)
-            return null;
 
         $price = (float) $row['price'] * (float) $weight;
 
@@ -628,25 +650,69 @@ class ShippingQuoteService
         return $price;
     }
 
-    /**
-     * Busca el rango donde cae el peso facturable.
-     */
     private function calculateRange($id_carrier, $id_city, $weight)
     {
-        $row = Db::getInstance()->getRow("
-            SELECT price
-            FROM " . _DB_PREFIX_ . "shipping_range_rate
-            WHERE id_carrier = " . (int) $id_carrier . "
-              AND id_city = " . (int) $id_city . "
-              AND active = 1
-              AND (min_weight < " . (float) $weight . " OR min_weight = 0)
-              AND (max_weight = 0 OR max_weight >= " . (float) $weight . ")
-            ORDER BY min_weight DESC
-        ");
+        try {
+            // Validaciones mínimas
+            $id_carrier = (int)$id_carrier;
+            $id_city    = (int)$id_city;
+            $weight     = (float)$weight;
 
-        if (!$row)
+            if ($id_carrier <= 0 || $id_city <= 0 || $weight <= 0) {
+                return null;
+            }
+            
+            // PASO 1: Verificar si existe cobertura para esta ciudad
+            
+            // ✅ CORRECCIÓN: usar id_range_rate en lugar de id_range
+            $coverageCheck = Db::getInstance()->executeS("
+                SELECT id_range_rate, min_weight, max_weight, price, active
+                FROM "._DB_PREFIX_."shipping_range_rate
+                WHERE id_carrier = ".$id_carrier."
+                AND id_city = ".$id_city."
+                ORDER BY min_weight ASC
+            ");
+            
+            if ($coverageCheck === false) {
+                return null;
+            }
+            
+            if (empty($coverageCheck)) {
+                return null;
+            }
+
+            // PASO 2: Buscar el rango activo que contenga el peso
+            $rows = Db::getInstance()->executeS("
+                SELECT price, min_weight, max_weight
+                FROM "._DB_PREFIX_."shipping_range_rate
+                WHERE id_carrier = ".$id_carrier."
+                AND id_city = ".$id_city."
+                AND active = 1
+                AND min_weight <= ".$weight."
+                AND (max_weight = 0 OR max_weight >= ".$weight.")
+                ORDER BY min_weight DESC
+            ");
+            
+            if ($rows === false) {
+                return null;
+            }
+
+            $row = $rows[0] ?? null;
+
+            if (!$row) {
+                return null;
+            }
+
+            $price = (float)$row['price'];
+
+            if ($price <= 0) {
+                return null;
+            }
+
+            return $price;
+            
+        } catch (Exception $e) {
             return null;
-
-        return (float) $row['price'];
+        }
     }
 }
