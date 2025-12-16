@@ -174,13 +174,14 @@ class Shipping_calculator extends CarrierModule
         $id_product = (int)$params['id_product'];
 
         $row = Db::getInstance()->getRow("
-            SELECT is_grouped
+            SELECT is_grouped, max_units_per_package
             FROM "._DB_PREFIX_."shipping_product
             WHERE id_product = $id_product
         ");
 
         $this->context->smarty->assign([
-            'is_grouped' => $row ? (string)$row['is_grouped'] : ''
+            'is_grouped' => $row ? (string)$row['is_grouped'] : '',
+            'max_units_per_package' => $row && $row['max_units_per_package'] ? (int)$row['max_units_per_package'] : ''
         ]);
 
         return $this->fetch('module:shipping_calculator/views/templates/hook/admin_product_transport.tpl');
@@ -198,6 +199,13 @@ class Shipping_calculator extends CarrierModule
             $is_grouped = null;
         }
 
+        $max_units = Tools::getValue('shipping_max_units_per_package');
+        if ($max_units === '' || $max_units === '0') {
+            $max_units = null;
+        } else {
+            $max_units = (int)$max_units;
+        }
+
         $exists = Db::getInstance()->getValue("
             SELECT id_shipping_product
             FROM "._DB_PREFIX_."shipping_product
@@ -207,12 +215,14 @@ class Shipping_calculator extends CarrierModule
         if ($exists) {
             Db::getInstance()->update('shipping_product', [
                 'is_grouped' => $is_grouped,
+                'max_units_per_package' => $max_units,
                 'date_upd'   => date('Y-m-d H:i:s'),
             ], "id_product = $id_product");
         } else {
             Db::getInstance()->insert('shipping_product', [
                 'id_product' => $id_product,
                 'is_grouped' => $is_grouped,
+                'max_units_per_package' => $max_units,
                 'date_add'   => date('Y-m-d H:i:s'),
                 'date_upd'   => date('Y-m-d H:i:s'),
             ]);
@@ -398,19 +408,21 @@ class Shipping_calculator extends CarrierModule
                 $id_product = (int)$product['id_product'];
                 $qty = (int)$product['cart_quantity'];
                 
-                // Obtener is_grouped desde BD
+                // Obtener is_grouped y max_units_per_package desde BD
                 $groupedRow = Db::getInstance()->getRow("
-                    SELECT is_grouped
+                    SELECT is_grouped, max_units_per_package
                     FROM "._DB_PREFIX_."shipping_product
                     WHERE id_product = ".(int)$id_product."
                 ");
-                
+                                
                 $is_grouped = $groupedRow ? (int)$groupedRow['is_grouped'] : 0;
-                
+                $max_units = $groupedRow && $groupedRow['max_units_per_package'] ? (int)$groupedRow['max_units_per_package'] : 0;
+                                
                 $items[] = [
                     'id_product' => $id_product,
                     'qty' => $qty,
-                    'is_grouped' => $is_grouped
+                    'is_grouped' => $is_grouped,
+                    'max_units_per_package' => $max_units
                 ];
             }
             

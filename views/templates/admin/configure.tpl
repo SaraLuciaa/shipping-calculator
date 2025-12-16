@@ -7,31 +7,53 @@
 <hr>
 
 {* ============================================
-   1. CONFIGURACIÓN GLOBAL - EMPAQUE
+   1. CONFIGURACIÓN GLOBAL - EMPAQUE Y PESO MÁXIMO
    ============================================ *}
 <div class="panel">
     <div class="panel-heading">
-        <i class="icon-globe"></i>Empaque
+        <i class="icon-globe"></i> Configuración Global
     </div>
     <div class="panel-body">
         <p class="text-muted">
             <i class="icon-info-circle"></i> 
-            El porcentaje de empaque se aplica sobre el costo base del envío para todas las transportadoras.
+            Configuración general aplicable a todos los cálculos de envío.
         </p>
         
         <form method="post" action="{$currentIndex}&token={$token}">
-            <div class="form-group">
-                <label>Porcentaje de Empaque (%):</label>
-                <input type="number" 
-                       name="packaging_percent" 
-                       class="form-control" 
-                       value="{$global_packaging|string_format:"%.2f"}"
-                       step="0.01"
-                       min="0"
-                       required>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>Porcentaje de Empaque (%):</label>
+                        <input type="number" 
+                               name="packaging_percent" 
+                               class="form-control" 
+                               value="{$global_packaging|string_format:"%.2f"}"
+                               step="0.01"
+                               min="0"
+                               required>
+                        <small class="help-block">
+                            Se aplica sobre el costo base del envío.
+                        </small>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>Peso Máximo por Paquete (kg):</label>
+                        <input type="number" 
+                               name="max_package_weight" 
+                               class="form-control" 
+                               value="{$max_package_weight|string_format:"%.2f"}"
+                               step="0.01"
+                               min="1"
+                               required>
+                        <small class="help-block">
+                            Límite de peso para productos agrupados en un solo paquete.
+                        </small>
+                    </div>
+                </div>
             </div>
             <button type="submit" name="submitGlobalConfig" class="btn btn-primary">
-                <i class="icon-save"></i> Guardar
+                <i class="icon-save"></i> Guardar Configuración
             </button>
         </form>
     </div>

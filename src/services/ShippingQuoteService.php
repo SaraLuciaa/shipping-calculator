@@ -193,32 +193,32 @@ class ShippingQuoteService
     }
 
     /**
-     * Cotiza múltiples productos, manejando AMBOS tipos: agrupados e individuales.
+     * Cotiza múltiples productos, manejando 3 tipos:
+     * 1. Agrupables (is_grouped=1)
+     * 2. Individuales Agrupables (is_grouped=0, max_units_per_package > 0)
+     * 3. Individuales NO Agrupables (is_grouped=0, max_units_per_package = 0/NULL)
      * 
      * Entrada: array de items con estructura:
      *   [
      *     {
      *       'id_product': int,
      *       'qty': int,
-     *       'is_grouped': int (0 o 1)
+     *       'is_grouped': int (0 o 1),
+     *       'max_units_per_package': int
      *     },
      *     ...
      *   ]
-     * 
-     * Proceso:
-     * 1. Separa productos agrupados de individuales
-     * 2. Para agrupados: usa ShippingGroupedPackageService para empaquetar
-     * 3. Para individuales: cotiza directamente
-     * 4. Retorna estructura unificada con paquetes agrupados e items individuales
      */
     public function quoteMultipleWithGrouped(array $items, $id_city)
     {
         if ((int)$id_city <= 0 || empty($items)) {
             return [
                 'grouped_packages' => [],
-                'individual_items' => [],
+                'individual_grouped_packages' => [],
+                'individual_non_grouped_items' => [],
                 'total_grouped' => 0.0,
-                'total_individual' => 0.0,
+                'total_individual_grouped' => 0.0,
+                'total_individual_non_grouped' => 0.0,
                 'grand_total' => 0.0
             ];
         }
@@ -226,14 +226,16 @@ class ShippingQuoteService
         $lang_id = Context::getContext()->language->id;
         $id_city = (int) $id_city;
 
-        $groupedItems = [];
-        $individualItems = [];
+        $groupedItems = [];              // is_grouped = 1
+        $individualGroupableItems = [];  // is_grouped = 0, max_units > 0
+        $individualNonGroupableItems = []; // is_grouped = 0, max_units = 0/NULL
 
         // Paso 1: Separar por tipo
         foreach ($items as $item) {
             $id_product = isset($item['id_product']) ? (int) $item['id_product'] : 0;
             $qty = isset($item['qty']) ? max(1, (int) $item['qty']) : 1;
             $is_grouped = isset($item['is_grouped']) ? (int) $item['is_grouped'] : 0;
+            $max_units = isset($item['max_units_per_package']) ? (int) $item['max_units_per_package'] : 0;
 
             if (!$id_product)
                 continue;
@@ -248,9 +250,11 @@ class ShippingQuoteService
             $productPrice = (float) $product->price;
 
             if ($is_grouped === 1) {
+                // Productos AGRUPABLES
                 $groupedItems[] = [
                     'id_product' => $id_product,
                     'quantity' => $qty,
+                    'max_units_per_package' => $max_units,
                     'weight_unit' => (float) $product->weight,
                     'height' => (float) $product->height,
                     'width' => (float) $product->width,
@@ -259,11 +263,28 @@ class ShippingQuoteService
                     'price' => $productPrice
                 ];
             } else {
-                $individualItems[] = [
-                    'id_product' => $id_product,
-                    'qty' => $qty,
-                    'name' => $productName
-                ];
+                // Productos INDIVIDUALES
+                if ($max_units > 0) {
+                    // INDIVIDUAL AGRUPABLE (se agrupa consigo mismo)
+                    $individualGroupableItems[] = [
+                        'id_product' => $id_product,
+                        'quantity' => $qty,
+                        'max_units_per_package' => $max_units,
+                        'weight_unit' => (float) $product->weight,
+                        'height' => (float) $product->height,
+                        'width' => (float) $product->width,
+                        'depth' => (float) $product->depth,
+                        'name' => $productName,
+                        'price' => $productPrice
+                    ];
+                } else {
+                    // INDIVIDUAL NO AGRUPABLE (cada unidad separada)
+                    $individualNonGroupableItems[] = [
+                        'id_product' => $id_product,
+                        'qty' => $qty,
+                        'name' => $productName
+                    ];
+                }
             }
         }
 
@@ -272,8 +293,11 @@ class ShippingQuoteService
 
         $results = [
             'grouped_packages' => [],
-            'individual_items' => [],
+            'individual_grouped_packages' => [],
+            'individual_non_grouped_items' => [],
             'total_grouped' => 0.0,
+            'total_individual_grouped' => 0.0,
+            'total_individual_non_grouped' => 0.0,
             'total_individual' => 0.0,
             'grand_total' => 0.0
         ];
@@ -299,9 +323,9 @@ class ShippingQuoteService
                 }
             }
 
-            // Agregar productos que deben tratarse como individuales (>1 paquete)
+            // Productos agrupados que exceden peso deben tratarse como individuales NO agrupables
             foreach ($packageResult['individual_products'] as $indvProduct) {
-                $individualItems[] = [
+                $individualNonGroupableItems[] = [
                     'id_product' => $indvProduct['id_product'],
                     'qty' => $indvProduct['quantity'],
                     'name' => $this->getProductName($indvProduct['id_product'], $lang_id),
@@ -310,9 +334,62 @@ class ShippingQuoteService
             }
         }
 
-        // Paso 4: Procesar productos individuales
-        if (!empty($individualItems)) {
-            foreach ($individualItems as $item) {
+        // Paso 4: Procesar productos individuales AGRUPABLES
+        if (!empty($individualGroupableItems)) {
+            
+            require_once dirname(__FILE__) . '/IndividualGroupablePackageService.php';
+            $individualGroupableService = new IndividualGroupablePackageService();
+
+            $individualPackageResult = $individualGroupableService->buildIndividualPackages(
+                $individualGroupableItems,
+                $maxVolumetricFactor
+            );
+            
+            // Cotizar paquetes individuales agrupables
+            foreach ($individualPackageResult['individual_packages'] as $pkg) {
+                $packageWeight = (float)$pkg['total_weight'];
+                $unitsInPackage = (int)$pkg['units_in_package'];
+                $pricePerUnit = (float)$pkg['price_per_unit'];
+                $packageValue = $pricePerUnit * $unitsInPackage;
+
+                $quotes = $this->quoteByWeight($packageWeight, $id_city, $packageValue);
+
+                $cheapest = null;
+                if ($quotes && count($quotes) > 0) {
+                    $cheapest = [
+                        'carrier' => $quotes[0]['carrier'],
+                        'price' => (float)$quotes[0]['price'],
+                    ];
+                    $results['total_individual_grouped'] += (float)$quotes[0]['price'];
+                }
+
+                $results['individual_grouped_packages'][] = [
+                    'package_id' => $pkg['package_id'],
+                    'package_type' => 'individual_grouped',
+                    'id_product' => $pkg['id_product'],
+                    'product_name' => $pkg['product_name'],
+                    'total_weight' => $packageWeight,
+                    'units_in_package' => $unitsInPackage,
+                    'cheapest' => $cheapest,
+                    'quotes' => $quotes
+                ];
+            }
+
+            // Productos oversized van como NO agrupables
+            foreach ($individualPackageResult['oversized_products'] as $oversized) {
+                $individualNonGroupableItems[] = [
+                    'id_product' => $oversized['id_product'],
+                    'qty' => $oversized['quantity'],
+                    'name' => $this->getProductName($oversized['id_product'], $lang_id),
+                    'reason' => 'unit_exceeds_max_weight'
+                ];
+            }
+        }
+
+        // Paso 5: Procesar productos individuales NO AGRUPABLES (cada unidad por separado)
+        if (!empty($individualNonGroupableItems)) {
+            
+            foreach ($individualNonGroupableItems as $item) {
                 $id_product = $item['id_product'];
                 $qty = $item['qty'];
                 
@@ -324,10 +401,10 @@ class ShippingQuoteService
                         'carrier' => $quotes[0]['carrier'],
                         'price' => (float) $quotes[0]['price'],
                     ];
-                    $results['total_individual'] += (float) $quotes[0]['price'];
+                    $results['total_individual_non_grouped'] += (float) $quotes[0]['price'];
                 }
 
-                $results['individual_items'][] = [
+                $results['individual_non_grouped_items'][] = [
                     'id_product' => $id_product,
                     'name' => $item['name'],
                     'qty' => $qty,
@@ -339,8 +416,8 @@ class ShippingQuoteService
             }
         }
 
-        // Paso 5: Calcular totales
-        $results['grand_total'] = $results['total_grouped'] + $results['total_individual'];
+        // Paso 6: Calcular totales
+        $results['grand_total'] = $results['total_grouped'] + $results['total_individual_grouped'] + $results['total_individual_non_grouped'];
 
         return $results;
     }
@@ -541,18 +618,19 @@ class ShippingQuoteService
     }
 
     /**
-     * Obtiene el factor volumétrico máximo configurado entre todas las transportadoras
+     * Obtiene el factor volumétrico MÍNIMO de todos los carriers
+     * (Factor menor = peso volumétrico mayor = cálculo más conservador)
      */
     private function getMaxVolumetricFactor()
     {
         $result = Db::getInstance()->getRow("
-            SELECT MAX(CAST(value_number AS UNSIGNED)) as max_factor
+            SELECT MIN(CAST(value_number AS UNSIGNED)) as min_factor
             FROM " . _DB_PREFIX_ . "shipping_config
-            WHERE name = 'Peso volumetrico'
+            WHERE name = 'Peso volumetrico' AND CAST(value_number AS UNSIGNED) > 0
         ");
 
-        if ($result && isset($result['max_factor'])) {
-            return (int) $result['max_factor'] ?: 5000;
+        if ($result && isset($result['min_factor']) && $result['min_factor'] > 0) {
+            return (int) $result['min_factor'];
         }
 
         return 5000; // Default

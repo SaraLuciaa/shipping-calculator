@@ -102,20 +102,27 @@ class AdminShippingCalculatorController extends ModuleAdminController
         }
 
         /* ========================================================
-         * CONFIGURACIÓN GLOBAL - EMPAQUE
+         * CONFIGURACIÓN GLOBAL - EMPAQUE Y PESO MÁXIMO
          * ======================================================== */
         if (Tools::isSubmit('submitGlobalConfig')) {
 
             $this->activePanel = 'panel-config';
 
             $packagingPercent = (float)Tools::getValue('packaging_percent');
+            $maxPackageWeight = (float)Tools::getValue('max_package_weight');
 
             if ($packagingPercent < 0) {
                 $this->errors[] = "El porcentaje de empaque debe ser positivo.";
                 return;
             }
 
+            if ($maxPackageWeight <= 0) {
+                $this->errors[] = "El peso máximo por paquete debe ser mayor a 0.";
+                return;
+            }
+
             try {
+                // Actualizar o insertar configuración de empaque
                 $existingPackaging = Db::getInstance()->getRow("
                     SELECT id_config FROM "._DB_PREFIX_."shipping_config
                     WHERE name = 'Empaque'
@@ -130,6 +137,26 @@ class AdminShippingCalculatorController extends ModuleAdminController
                     Db::getInstance()->insert('shipping_config', [
                         'name' => 'Empaque',
                         'value_number' => $packagingPercent,
+                        'date_add' => date('Y-m-d H:i:s'),
+                        'date_upd' => date('Y-m-d H:i:s'),
+                    ]);
+                }
+
+                // Actualizar o insertar configuración de peso máximo por paquete
+                $existingMaxWeight = Db::getInstance()->getRow("
+                    SELECT id_config FROM "._DB_PREFIX_."shipping_config
+                    WHERE name = 'Peso maximo paquete'
+                ");
+
+                if ($existingMaxWeight) {
+                    Db::getInstance()->update('shipping_config', [
+                        'value_number' => $maxPackageWeight,
+                        'date_upd' => date('Y-m-d H:i:s'),
+                    ], "name = 'Peso maximo paquete'");
+                } else {
+                    Db::getInstance()->insert('shipping_config', [
+                        'name' => 'Peso maximo paquete',
+                        'value_number' => $maxPackageWeight,
                         'date_add' => date('Y-m-d H:i:s'),
                         'date_upd' => date('Y-m-d H:i:s'),
                     ]);
@@ -348,18 +375,32 @@ class AdminShippingCalculatorController extends ModuleAdminController
                         $idp = isset($p['id_product']) ? (int)$p['id_product'] : 0;
                         $q   = isset($p['qty']) ? max(1, (int)$p['qty']) : 1;
                         if ($idp) {
-                            // Obtener is_grouped desde BD
+                            // Obtener is_grouped y max_units_per_package desde BD
                             $groupedRow = Db::getInstance()->getRow("
-                                SELECT is_grouped
+                                SELECT is_grouped, max_units_per_package
                                 FROM "._DB_PREFIX_."shipping_product
                                 WHERE id_product = ".(int)$idp."
                             ");
-                            $isGrouped = $groupedRow ? (int)$groupedRow['is_grouped'] : 0;
                             
+                            // Si no existe registro, asumir valores por defecto
+                            if ($groupedRow) {
+                                $isGrouped = isset($groupedRow['is_grouped']) && $groupedRow['is_grouped'] !== null 
+                                    ? (int)$groupedRow['is_grouped'] 
+                                    : 0;
+                                $maxUnits = isset($groupedRow['max_units_per_package']) && $groupedRow['max_units_per_package'] !== null 
+                                    ? (int)$groupedRow['max_units_per_package'] 
+                                    : 0;
+                            } else {
+                                // No hay registro: producto individual no agrupable por defecto
+                                $isGrouped = 0;
+                                $maxUnits = 0;
+                            }
+                                                        
                             $items[] = [
                                 'id_product' => $idp,
                                 'qty' => $q,
-                                'is_grouped' => $isGrouped
+                                'is_grouped' => $isGrouped,
+                                'max_units_per_package' => $maxUnits
                             ];
                         }
                     }
@@ -374,9 +415,11 @@ class AdminShippingCalculatorController extends ModuleAdminController
 
                     $this->context->smarty->assign([
                         'grouped_packages' => $result['grouped_packages'],
-                        'individual_items' => $result['individual_items'],
+                        'individual_grouped_packages' => $result['individual_grouped_packages'],
+                        'individual_non_grouped_items' => $result['individual_non_grouped_items'],
                         'total_grouped' => $result['total_grouped'],
-                        'total_individual' => $result['total_individual'],
+                        'total_individual_grouped' => $result['total_individual_grouped'],
+                        'total_individual_non_grouped' => $result['total_individual_non_grouped'],
                         'grand_total' => $result['grand_total'],
                     ]);
 
@@ -446,6 +489,14 @@ class AdminShippingCalculatorController extends ModuleAdminController
             FROM "._DB_PREFIX_."shipping_config
             WHERE name = 'Empaque' AND (id_carrier = 0 OR id_carrier IS NULL)
         ");
+
+        $maxWeightConfig = Db::getInstance()->getRow("
+            SELECT value_number
+            FROM "._DB_PREFIX_."shipping_config
+            WHERE name = 'Peso maximo paquete'
+        ");
+
+        $maxPackageWeight = $maxWeightConfig ? (float)$maxWeightConfig['value_number'] : 60.0;
 
         $carrierConfigs = [];
         foreach ($registered as $carrier) {
@@ -543,6 +594,7 @@ class AdminShippingCalculatorController extends ModuleAdminController
             'token'              => $this->token,
             'currentIndex'       => self::$currentIndex,
             'global_packaging'   => $globalPackaging ? $globalPackaging['value_number'] : 5.0,
+            'max_package_weight' => $maxPackageWeight,
             'carrier_configs'    => $carrierConfigs,
         ]);
 

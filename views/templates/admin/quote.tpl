@@ -79,13 +79,13 @@
    RESULTADOS
    ========================== *}
 
-{if isset($quotes) || isset($grouped_packages) || isset($individual_items)}
+{if isset($quotes) || isset($grouped_packages) || isset($individual_grouped_packages) || isset($individual_non_grouped_items)}
 
   <div class="panel">
     <h3><i class="icon-list"></i> Resultados de cotización</h3>
 
     {* RESULTADOS CON PRODUCTOS AGRUPADOS E INDIVIDUALES *}
-    {if isset($grouped_packages) || isset($individual_items)}
+    {if isset($grouped_packages) || isset($individual_grouped_packages) || isset($individual_non_grouped_items)}
       {if isset($selected_city)}
         <div class="well well-sm">
           <div class="row">
@@ -190,14 +190,70 @@
         {/foreach}
       {/if}
 
-      {* PRODUCTOS INDIVIDUALES *}
-      {if isset($individual_items) && $individual_items|@count > 0}
-        <div class="alert alert-warning">
-          <h4><i class="icon-package"></i> Productos Individuales</h4>
-          <p>Productos cotizados individualmente (no agrupables)</p>
+      {* PRODUCTOS INDIVIDUALES AGRUPABLES (se agrupan consigo mismos) *}
+      {if isset($individual_grouped_packages) && $individual_grouped_packages|@count > 0}
+        <div class="alert alert-info">
+          <h4><i class="icon-cubes"></i> Productos Individuales Agrupables</h4>
+          <p>Productos que se agrupan con unidades del mismo producto</p>
         </div>
 
-        {foreach $individual_items as $item}
+        {foreach $individual_grouped_packages as $package}
+          <div class="panel panel-default">
+            <div class="panel-heading">
+              <strong>Paquete individual {$package@iteration}</strong> — Peso total: <strong>{$package.total_weight|number_format:2:",":"."} kg</strong>
+              {if $package.units_in_package}
+                — {$package.units_in_package} unidad(es)
+              {/if}
+            </div>
+            <div class="panel-body">
+              {if $package.cheapest}
+                <p>✓ Mejor opción: <strong>{$package.cheapest.carrier}</strong> — <strong>$ {$package.cheapest.price|number_format:0:",":"."}</strong></p>
+              {else}
+                <p class="text-muted">No se encontraron tarifas para este paquete.</p>
+              {/if}
+
+              {if $package.quotes|@count > 0}
+                <h5>Todas las opciones disponibles:</h5>
+                <div class="table-responsive">
+                  <table class="table table-condensed table-striped">
+                    <thead>
+                      <tr>
+                        <th>Transportadora</th>
+                        <th>Tipo</th>
+                        <th>Flete</th>
+                        <th>Empaque</th>
+                        <th>Seguro</th>
+                        <th>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {foreach $package.quotes as $q}
+                        <tr>
+                          <td>{$q.carrier}</td>
+                          <td>{if $q.type == 'per_kg'}Por Kg{else}Por Rangos{/if}</td>
+                          <td>$ {$q.shipping_cost|number_format:0:",":"."}</td>
+                          <td>$ {$q.packaging_cost|number_format:0:",":"."}</td>
+                          <td>$ {$q.insurance_cost|number_format:0:",":"."}</td>
+                          <td><strong>$ {$q.price|number_format:0:",":"."}</strong></td>
+                        </tr>
+                      {/foreach}
+                    </tbody>
+                  </table>
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/foreach}
+      {/if}
+
+      {* PRODUCTOS INDIVIDUALES NO AGRUPABLES (cada unidad por separado) *}
+      {if isset($individual_non_grouped_items) && $individual_non_grouped_items|@count > 0}
+        <div class="alert alert-warning">
+          <h4><i class="icon-package"></i> Productos Individuales NO Agrupables</h4>
+          <p>Productos cotizados individualmente (cada unidad por separado)</p>
+        </div>
+
+        {foreach $individual_non_grouped_items as $item}
           <div class="panel panel-default">
             <div class="panel-heading">
               <strong>{$item.name}</strong> — Cantidad: {$item.qty}
@@ -260,7 +316,7 @@
       {/if}
 
       {* TOTALES FINALES *}
-      {if (isset($grouped_packages) && $grouped_packages|@count > 0) || (isset($individual_items) && $individual_items|@count > 0)}
+      {if (isset($grouped_packages) && $grouped_packages|@count > 0) || (isset($individual_grouped_packages) && $individual_grouped_packages|@count > 0) || (isset($individual_non_grouped_items) && $individual_non_grouped_items|@count > 0)}
         <div class="panel-footer">
           <table class="table table-condensed" style="margin-bottom:0;">
             <tbody>
@@ -270,10 +326,16 @@
                   <td style="text-align:right;"><strong>$ {$total_grouped|number_format:0:",":"."}</strong></td>
                 </tr>
               {/if}
-              {if isset($total_individual) && $total_individual > 0}
+              {if isset($total_individual_grouped) && $total_individual_grouped > 0}
                 <tr style="background-color:#f5f5f5;">
-                  <td><strong>Total productos individuales:</strong></td>
-                  <td style="text-align:right;"><strong>$ {$total_individual|number_format:0:",":"."}</strong></td>
+                  <td><strong>Total productos individuales agrupables:</strong></td>
+                  <td style="text-align:right;"><strong>$ {$total_individual_grouped|number_format:0:",":"."}</strong></td>
+                </tr>
+              {/if}
+              {if isset($total_individual_non_grouped) && $total_individual_non_grouped > 0}
+                <tr style="background-color:#f5f5f5;">
+                  <td><strong>Total productos individuales NO agrupables:</strong></td>
+                  <td style="text-align:right;"><strong>$ {$total_individual_non_grouped|number_format:0:",":"."}</strong></td>
                 </tr>
               {/if}
               {if isset($grand_total)}
