@@ -23,6 +23,67 @@ class AdminShippingCalculatorController extends ModuleAdminController
     public function postProcess()
     {
         /* ========================================================
+         * AJAX: OBTENER DATOS DE PEDIDO
+         * ======================================================== */
+        if (Tools::isSubmit('ajax') && Tools::getValue('action') == 'getOrderData') {
+            $idOrder = (int)Tools::getValue('id_order');
+            
+            if (!$idOrder) {
+                die(json_encode(['error' => 'ID de pedido inválido']));
+            }
+
+            try {
+                $order = new Order($idOrder);
+                
+                if (!Validate::isLoadedObject($order)) {
+                    die(json_encode(['error' => 'Pedido no encontrado']));
+                }
+
+                // Obtener productos del pedido
+                $products = $order->getProducts();
+                $orderData = [];
+                
+                foreach ($products as $product) {
+                    $orderData['products'][] = [
+                        'id_product' => (int)$product['product_id'],
+                        'name' => $product['product_name'],
+                        'qty' => (int)$product['product_quantity']
+                    ];
+                }
+
+                // Obtener dirección de entrega
+                $address = new Address((int)$order->id_address_delivery);
+                
+                if (Validate::isLoadedObject($address)) {
+                    // Buscar ciudad en nuestra tabla de ciudades
+                    $city = Db::getInstance()->getRow("
+                        SELECT c.id_city, c.name, s.name AS state
+                        FROM "._DB_PREFIX_."city c
+                        LEFT JOIN "._DB_PREFIX_."state s ON s.id_state = c.id_state
+                        WHERE c.name = '".pSQL($address->city)."'
+                        AND s.id_state = ".(int)$address->id_state
+                    );
+                    
+                    if ($city) {
+                        $orderData['id_city'] = (int)$city['id_city'];
+                        $orderData['city_name'] = $city['name'].' ('.$city['state'].')';
+                    } else {
+                        // Si no encuentra la ciudad exacta, buscar por estado
+                        $stateInfo = new State((int)$address->id_state);
+                        $orderData['id_city'] = null;
+                        $orderData['city_name'] = $address->city.' (No encontrada en BD)';
+                        $orderData['state_name'] = $stateInfo->name;
+                    }
+                }
+
+                die(json_encode(['success' => true, 'data' => $orderData]));
+
+            } catch (Exception $e) {
+                die(json_encode(['error' => 'Error al obtener datos del pedido: '.$e->getMessage()]));
+            }
+        }
+
+        /* ========================================================
          * REGISTRAR TRANSPORTISTA
          * ======================================================== */
         if (Tools::isSubmit('submitRegisterCarrier')) {
@@ -413,6 +474,10 @@ class AdminShippingCalculatorController extends ModuleAdminController
                     // Usar nuevo método que maneja ambos tipos
                     $result = $service->quoteMultipleWithGrouped($items, $id_city);
 
+                    // Calcular subtotal y total con IVA
+                    $subtotal = $result['grand_total'];
+                    $total_with_tax = $subtotal * 1.19;
+
                     $this->context->smarty->assign([
                         'grouped_packages' => $result['grouped_packages'],
                         'individual_grouped_packages' => $result['individual_grouped_packages'],
@@ -421,6 +486,8 @@ class AdminShippingCalculatorController extends ModuleAdminController
                         'total_individual_grouped' => $result['total_individual_grouped'],
                         'total_individual_non_grouped' => $result['total_individual_non_grouped'],
                         'grand_total' => $result['grand_total'],
+                        'subtotal' => $subtotal,
+                        'total_with_tax' => $total_with_tax,
                     ]);
 
                     // también asignar ciudad
@@ -482,6 +549,16 @@ class AdminShippingCalculatorController extends ModuleAdminController
         $products = Db::getInstance()->executeS("\n            SELECT id_product, name\n            FROM "._DB_PREFIX_."product_lang\n            WHERE id_lang = ".(int)$this->context->language->id."\n            ORDER BY name ASC\n        ");
 
         $cities = Db::getInstance()->executeS("\n            SELECT c.id_city, c.name, s.name AS state\n            FROM "._DB_PREFIX_."city c\n            LEFT JOIN "._DB_PREFIX_."state s ON s.id_state = c.id_state\n            WHERE c.active = 1\n            ORDER BY c.name ASC\n        ");
+
+        // Obtener pedidos recientes (últimos 100) para el selector
+        $orders = Db::getInstance()->executeS("
+            SELECT o.id_order, o.reference, o.date_add, 
+                   CONCAT(c.firstname, ' ', c.lastname) as customer_name
+            FROM "._DB_PREFIX_."orders o
+            LEFT JOIN "._DB_PREFIX_."customer c ON c.id_customer = o.id_customer
+            ORDER BY o.date_add DESC
+            LIMIT 100
+        ");
 
         // Obtener configuraciones para el panel de configuración
         $globalPackaging = Db::getInstance()->getRow("
@@ -589,6 +666,7 @@ class AdminShippingCalculatorController extends ModuleAdminController
             'carriers_all'       => $allCarriers,
             'products'           => $products,
             'cities'             => $cities,
+            'orders'             => $orders,
             'quotes'             => $this->quotes,
             'active_panel'       => $this->activePanel,
             'token'              => $this->token,
