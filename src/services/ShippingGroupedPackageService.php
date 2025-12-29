@@ -95,11 +95,22 @@ class ShippingGroupedPackageService
             $depth = (float) $product['depth'];
             $price = isset($product['price']) ? (float) $product['price'] : 0.0;
 
+            // Validar que el producto tenga peso
+            if ($weightUnit <= 0 && ($height <= 0 || $width <= 0 || $depth <= 0)) {
+                // Producto sin peso ni dimensiones, asignar peso mínimo de 0.1kg
+                $weightUnit = 0.1;
+            }
+
             // Cálculo de peso volumétrico unitario
             $volumetricWeightUnit = $this->calculateVolumetricWeight($height, $width, $depth);
 
             // Peso máximo por unidad (el mayor entre real y volumétrico)
             $maxWeightUnit = max($weightUnit, $volumetricWeightUnit);
+            
+            // Asegurar que nunca sea 0
+            if ($maxWeightUnit <= 0) {
+                $maxWeightUnit = 0.1;
+            }
 
             // Peso total del producto (todas sus unidades)
             $totalProductWeight = $maxWeightUnit * $quantity;
@@ -212,7 +223,7 @@ class ShippingGroupedPackageService
                     if ($bestPackageIdx !== null) {
                         // Calcular cuántas unidades caben por peso
                         $availableSpace = $this->maxWeightPerPackage - $packages[$bestPackageIdx]['total_weight'];
-                        $unitsThatFitByWeight = (int) floor($availableSpace / $unitWeight);
+                        $unitsThatFitByWeight = ($unitWeight > 0) ? (int) floor($availableSpace / $unitWeight) : PHP_INT_MAX;
 
                         // Verificar si ya existe este producto en el paquete
                         $existingItemIdx = null;
@@ -259,7 +270,7 @@ class ShippingGroupedPackageService
                     
                     if ($bestPackageIdx === null) {
                         // Crear nuevo paquete
-                        $unitsByWeight = (int) floor($this->maxWeightPerPackage / $unitWeight);
+                        $unitsByWeight = ($unitWeight > 0) ? (int) floor($this->maxWeightPerPackage / $unitWeight) : PHP_INT_MAX;
                         $unitsForNewPackage = min($unitsByWeight, $remainingUnits);
                         
                         // Aplicar restricción de max_units_per_package

@@ -51,6 +51,24 @@
                         </small>
                     </div>
                 </div>
+            </div>            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>Porcentaje de IVA (%):</label>
+                        <input type="number" 
+                               name="vat_percent" 
+                               class="form-control" 
+                               value="{$vat_percent|string_format:"%.2f"}"
+                               step="0.01"
+                               min="0"
+                               max="100"
+                               required>
+                        <small class="help-block">
+                            IVA aplicado al costo de envío en el checkout (por defecto 19%).
+                        </small>
+                    </div>
+                </div>
+                
             </div>
             <button type="submit" name="submitGlobalConfig" class="btn btn-primary">
                 <i class="icon-save"></i> Guardar Configuración

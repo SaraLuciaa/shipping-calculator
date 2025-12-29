@@ -40,6 +40,9 @@ class Shipping_calculator extends CarrierModule
 
     public function install()
     {
+        // Configurar IVA por defecto (19%)
+        Configuration::updateValue('SHIPPING_CALCULATOR_VAT_PERCENT', 19.0);
+        
         return parent::install()
             && include dirname(__FILE__) . '/sql/install.php'
             && $this->installTab()
@@ -62,6 +65,8 @@ class Shipping_calculator extends CarrierModule
             }
             Configuration::deleteByName('SHIPPING_CALCULATOR_CARRIER_ID');
         }
+        
+        Configuration::deleteByName('SHIPPING_CALCULATOR_VAT_PERCENT');
 
         $this->uninstallTab();
         include dirname(__FILE__) . '/sql/uninstall.php';
@@ -440,7 +445,12 @@ class Shipping_calculator extends CarrierModule
 
             $totalCost = (float)$quoteResult['grand_total'];
 
-            return $totalCost;
+            // Incluir IVA en el checkout usando configuración
+            $vatPercent = (float)Configuration::get('SHIPPING_CALCULATOR_VAT_PERCENT', 19.0);
+            $vatMultiplier = 1 + ($vatPercent / 100);
+            $totalWithTax = round($totalCost * $vatMultiplier, 2);
+
+            return $totalWithTax;
         } catch (Exception $e) {
             return false;
         }

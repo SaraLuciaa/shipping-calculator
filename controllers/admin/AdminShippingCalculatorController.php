@@ -163,7 +163,7 @@ class AdminShippingCalculatorController extends ModuleAdminController
         }
 
         /* ========================================================
-         * CONFIGURACIÓN GLOBAL - EMPAQUE Y PESO MÁXIMO
+         * CONFIGURACIÓN GLOBAL - EMPAQUE, PESO MÁXIMO E IVA
          * ======================================================== */
         if (Tools::isSubmit('submitGlobalConfig')) {
 
@@ -171,6 +171,7 @@ class AdminShippingCalculatorController extends ModuleAdminController
 
             $packagingPercent = (float)Tools::getValue('packaging_percent');
             $maxPackageWeight = (float)Tools::getValue('max_package_weight');
+            $vatPercent = (float)Tools::getValue('vat_percent');
 
             if ($packagingPercent < 0) {
                 $this->errors[] = "El porcentaje de empaque debe ser positivo.";
@@ -179,6 +180,11 @@ class AdminShippingCalculatorController extends ModuleAdminController
 
             if ($maxPackageWeight <= 0) {
                 $this->errors[] = "El peso máximo por paquete debe ser mayor a 0.";
+                return;
+            }
+            
+            if ($vatPercent < 0 || $vatPercent > 100) {
+                $this->errors[] = "El porcentaje de IVA debe estar entre 0 y 100.";
                 return;
             }
 
@@ -222,9 +228,9 @@ class AdminShippingCalculatorController extends ModuleAdminController
                         'date_upd' => date('Y-m-d H:i:s'),
                     ]);
                 }
-
-                $this->confirmations[] = "Configuración global actualizada correctamente.";
-
+            
+            // Guardar porcentaje de IVA
+            Configuration::updateValue('SHIPPING_CALCULATOR_VAT_PERCENT', $vatPercent);
             } catch (Exception $e) {
                 $this->errors[] = "Error al guardar configuración: ".$e->getMessage();
             }
@@ -476,7 +482,10 @@ class AdminShippingCalculatorController extends ModuleAdminController
 
                     // Calcular subtotal y total con IVA
                     $subtotal = $result['grand_total'];
-                    $total_with_tax = $subtotal * 1.19;
+                    
+                    $vatPercent = (float)Configuration::get('SHIPPING_CALCULATOR_VAT_PERCENT', 19.0);
+                    $vatMultiplier = 1 + ($vatPercent / 100);
+                    $total_with_tax = $subtotal * $vatMultiplier;
 
                     $this->context->smarty->assign([
                         'grouped_packages' => $result['grouped_packages'],
@@ -574,6 +583,9 @@ class AdminShippingCalculatorController extends ModuleAdminController
         ");
 
         $maxPackageWeight = $maxWeightConfig ? (float)$maxWeightConfig['value_number'] : 60.0;
+        
+        // Obtener porcentaje de IVA
+        $vatPercent = (float)Configuration::get('SHIPPING_CALCULATOR_VAT_PERCENT', 19.0);
 
         $carrierConfigs = [];
         foreach ($registered as $carrier) {
@@ -673,6 +685,7 @@ class AdminShippingCalculatorController extends ModuleAdminController
             'currentIndex'       => self::$currentIndex,
             'global_packaging'   => $globalPackaging ? $globalPackaging['value_number'] : 5.0,
             'max_package_weight' => $maxPackageWeight,
+            'vat_percent'        => $vatPercent,
             'carrier_configs'    => $carrierConfigs,
         ]);
 
