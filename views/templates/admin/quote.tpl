@@ -190,11 +190,13 @@
                     <thead>
                       <tr>
                         <th>Transportadora</th>
-                        <th style="width:100px;">Tipo</th>
-                        <th style="width:100px;">Flete</th>
-                        <th style="width:100px;">Empaque</th>
-                        <th style="width:100px;">Seguro</th>
-                        <th style="width:120px;">Total</th>
+                        <th style="width:80px;">Tipo</th>
+                        <th style="width:90px;">Peso Real</th>
+                        <th style="width:90px;">Peso Vol.</th>
+                        <th style="width:90px;">Flete</th>
+                        <th style="width:80px;">Empaque</th>
+                        <th style="width:80px;">Seguro</th>
+                        <th style="width:100px;">Total</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -202,10 +204,12 @@
                         <tr>
                           <td>{$q.carrier}</td>
                           <td>{if $q.type == 'per_kg'}Por Kg{else}Por Rangos{/if}</td>
-                          <td>$ {$q.shipping_cost|number_format:0:",":"."}</td>
-                          <td>$ {$q.packaging_cost|number_format:0:",":"."}</td>
-                          <td>$ {$q.insurance_cost|number_format:0:",":"."}</td>
-                          <td><strong>$ {$q.price|number_format:0:",":"."}</strong></td>
+                          <td>{if isset($q.peso_real)}{$q.peso_real|number_format:2:",":"."}{else}{$q.weight_real|default:0|number_format:2:",":"."}{/if} kg</td>
+                          <td>{if isset($q.peso_volumetrico)}{$q.peso_volumetrico|number_format:2:",":"."}{else}{$q.weight_vol|default:0|number_format:2:",":"."}{/if} kg</td>
+                          <td>$ {if isset($q.flete)}{$q.flete|number_format:0:",":"."}{else}{$q.shipping_cost|number_format:0:",":"."}{/if}</td>
+                          <td>$ {if isset($q.empaque)}{$q.empaque|number_format:0:",":"."}{else}{$q.packaging_cost|number_format:0:",":"."}{/if}</td>
+                          <td>$ {if isset($q.seguro)}{$q.seguro|number_format:0:",":"."}{else}{$q.insurance_cost|number_format:0:",":"."}{/if}</td>
+                          <td><strong>$ {if isset($q.total)}{$q.total|number_format:0:",":"."}{else}{$q.price|number_format:0:",":"."}{/if}</strong></td>
                         </tr>
                       {/foreach}
                     </tbody>
@@ -246,11 +250,13 @@
                     <thead>
                       <tr>
                         <th>Transportadora</th>
-                        <th>Tipo</th>
-                        <th>Flete</th>
-                        <th>Empaque</th>
-                        <th>Seguro</th>
-                        <th>Total</th>
+                        <th style="width:80px;">Tipo</th>
+                        <th style="width:90px;">Peso Real</th>
+                        <th style="width:90px;">Peso Vol.</th>
+                        <th style="width:90px;">Flete</th>
+                        <th style="width:80px;">Empaque</th>
+                        <th style="width:80px;">Seguro</th>
+                        <th style="width:100px;">Total</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -258,10 +264,12 @@
                         <tr>
                           <td>{$q.carrier}</td>
                           <td>{if $q.type == 'per_kg'}Por Kg{else}Por Rangos{/if}</td>
-                          <td>$ {$q.shipping_cost|number_format:0:",":"."}</td>
-                          <td>$ {$q.packaging_cost|number_format:0:",":"."}</td>
-                          <td>$ {$q.insurance_cost|number_format:0:",":"."}</td>
-                          <td><strong>$ {$q.price|number_format:0:",":"."}</strong></td>
+                          <td>{if isset($q.peso_real)}{$q.peso_real|number_format:2:",":"."}{else}{$q.weight_real|default:0|number_format:2:",":"."}{/if} kg</td>
+                          <td>{if isset($q.peso_volumetrico)}{$q.peso_volumetrico|number_format:2:",":"."}{else}{$q.weight_vol|default:0|number_format:2:",":"."}{/if} kg</td>
+                          <td>$ {if isset($q.flete)}{$q.flete|number_format:0:",":"."}{else}{$q.shipping_cost|number_format:0:",":"."}{/if}</td>
+                          <td>$ {if isset($q.empaque)}{$q.empaque|number_format:0:",":"."}{else}{$q.packaging_cost|number_format:0:",":"."}{/if}</td>
+                          <td>$ {if isset($q.seguro)}{$q.seguro|number_format:0:",":"."}{else}{$q.insurance_cost|number_format:0:",":"."}{/if}</td>
+                          <td><strong>$ {if isset($q.total)}{$q.total|number_format:0:",":"."}{else}{$q.price|number_format:0:",":"."}{/if}</strong></td>
                         </tr>
                       {/foreach}
                     </tbody>
@@ -292,9 +300,11 @@
               {if $item.quotes|@count > 0}
                 {assign var=firstQuote value=$item.quotes[0]}
                 <div style="margin-top:8px;">
-                  <small>Peso real: <strong>{$firstQuote.weight_real|default:0|number_format:3:",":"."} kg</strong></small>
+                  <small>Peso real: <strong>{if isset($firstQuote.peso_real)}{$firstQuote.peso_real|number_format:2:",":"."}{else}{$firstQuote.weight_real|default:0|number_format:2:",":"."}{/if} kg</strong></small>
                   &nbsp;•&nbsp;
-                  <small>Peso volumétrico: <strong>{$firstQuote.weight_vol|default:0|number_format:3:",":"."} kg</strong></small>
+                  <small>Peso volumétrico: <strong>{if isset($firstQuote.peso_volumetrico)}{$firstQuote.peso_volumetrico|number_format:2:",":"."}{else}{$firstQuote.weight_vol|default:0|number_format:2:",":"."}{/if} kg</strong></small>
+                  &nbsp;•&nbsp;
+                  <small>Peso facturable: <strong>{if isset($firstQuote.peso_facturable)}{$firstQuote.peso_facturable|number_format:2:",":"."}{else}{$firstQuote.weight_billable|default:0|number_format:2:",":"."}{/if} kg</strong></small>
                 </div>
               {/if}
             </div>
@@ -311,13 +321,13 @@
                     <thead>
                       <tr>
                         <th>Transportadora</th>
-                        <th>Tipo</th>
-                        <th style="width:100px;">Peso real</th>
-                        <th style="width:100px;">Peso vol.</th>
-                        <th style="width:100px;">Flete</th>
-                        <th style="width:100px;">Empaque</th>
-                        <th style="width:100px;">Seguro</th>
-                        <th style="width:120px;">Total</th>
+                        <th style="width:80px;">Tipo</th>
+                        <th style="width:90px;">Peso Real</th>
+                        <th style="width:90px;">Peso Vol.</th>
+                        <th style="width:90px;">Flete</th>
+                        <th style="width:80px;">Empaque</th>
+                        <th style="width:80px;">Seguro</th>
+                        <th style="width:100px;">Total</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -325,12 +335,12 @@
                         <tr>
                           <td>{$q.carrier}</td>
                           <td>{if $q.type == 'per_kg'}Por Kg{else}Por Rangos{/if}</td>
-                          <td>{$q.weight_real|default:0|number_format:3:",":"."}</td>
-                          <td>{$q.weight_vol|default:0|number_format:3:",":"."}</td>
-                          <td>$ {$q.shipping_cost|number_format:0:",":"."}</td>
-                          <td>$ {$q.packaging_cost|number_format:0:",":"."}</td>
-                          <td>$ {$q.insurance_cost|number_format:0:",":"."}</td>
-                          <td><strong>$ {$q.price|number_format:0:",":"."}</strong></td>
+                          <td>{if isset($q.peso_real)}{$q.peso_real|number_format:2:",":"."}{else}{$q.weight_real|default:0|number_format:2:",":"."}{/if} kg</td>
+                          <td>{if isset($q.peso_volumetrico)}{$q.peso_volumetrico|number_format:2:",":"."}{else}{$q.weight_vol|default:0|number_format:2:",":"."}{/if} kg</td>
+                          <td>$ {if isset($q.flete)}{$q.flete|number_format:0:",":"."}{else}{$q.shipping_cost|number_format:0:",":"."}{/if}</td>
+                          <td>$ {if isset($q.empaque)}{$q.empaque|number_format:0:",":"."}{else}{$q.packaging_cost|number_format:0:",":"."}{/if}</td>
+                          <td>$ {if isset($q.seguro)}{$q.seguro|number_format:0:",":"."}{else}{$q.insurance_cost|number_format:0:",":"."}{/if}</td>
+                          <td><strong>$ {if isset($q.total)}{$q.total|number_format:0:",":"."}{else}{$q.price|number_format:0:",":"."}{/if}</strong></td>
                         </tr>
                       {/foreach}
                     </tbody>

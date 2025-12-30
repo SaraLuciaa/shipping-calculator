@@ -20,7 +20,10 @@ class ShippingQuoteService
         $this->groupedPackageService = new ShippingGroupedPackageService();
     }
 
-    public function quote($id_product, $id_city, $qty = 1)
+    /**
+     * Cotiza un producto con detalles completos (peso real, volumétrico, flete, empaque, seguro)
+     */
+    public function quoteWithDetails($id_product, $id_city, $qty = 1)
     {
         if ((int)$id_city <= 0) {
             return [];
@@ -111,6 +114,15 @@ class ShippingQuoteService
                         'carrier' => $carrier['name'],
                         'type' => $type,
                         'price' => $totalPrice,
+                        'peso_real' => round($p_weight, 2),
+                        'peso_volumetrico' => round($volWeight, 2),
+                        'peso_facturable' => round($billable, 2),
+                        'flete' => round($shippingCost, 2),
+                        'empaque' => round($packagingCost, 2),
+                        'seguro' => round($insuranceCost, 2),
+                        'total' => round($totalPrice, 2),
+                        'factor_volumetrico' => $kgVol['value_number'],
+                        // Mantener compatibilidad con código legacy
                         'shipping_cost' => $shippingCost,
                         'packaging_cost' => $packagingCost,
                         'insurance_cost' => $insuranceCost,
@@ -131,6 +143,15 @@ class ShippingQuoteService
 
         return $quotes;
     }
+
+    /**
+     * Método quote original (legacy) - redirige a quoteWithDetails
+     */
+    public function quote($id_product, $id_city, $qty = 1)
+    {
+        return $this->quoteWithDetails($id_product, $id_city, $qty);
+    }
+
     /**
      * Cotiza múltiples productos (array de items ['id_product'=>, 'qty'=>])
      * Retorna detalle por producto con la cotización más barata y el total acumulado.
@@ -288,8 +309,9 @@ class ShippingQuoteService
             }
         }
 
-        // Paso 2: Obtener factor volumétrico máximo
-        $maxVolumetricFactor = $this->getMaxVolumetricFactor();
+        // Paso 2: Obtener factor volumétrico MÍNIMO (más conservador) 
+        // para que los paquetes respeten el límite de 60 kg en TODAS las transportadoras
+        $minVolumetricFactor = $this->getMinVolumetricFactor();
 
         $results = [
             'grouped_packages' => [],
@@ -306,7 +328,7 @@ class ShippingQuoteService
         if (!empty($groupedItems)) {
             $packageResult = $this->groupedPackageService->buildGroupedPackages(
                 $groupedItems,
-                $maxVolumetricFactor
+                $minVolumetricFactor
             );
 
             $results['grouped_packages'] = $this->quotGroupedPackages(
@@ -342,7 +364,7 @@ class ShippingQuoteService
 
             $individualPackageResult = $individualGroupableService->buildIndividualPackages(
                 $individualGroupableItems,
-                $maxVolumetricFactor
+                $minVolumetricFactor
             );
             
             // Cotizar paquetes individuales agrupables
@@ -351,8 +373,15 @@ class ShippingQuoteService
                 $unitsInPackage = (int)$pkg['units_in_package'];
                 $pricePerUnit = (float)$pkg['price_per_unit'];
                 $packageValue = $pricePerUnit * $unitsInPackage;
+                
+                // Obtener dimensiones del producto
+                $product = new Product($pkg['id_product']);
+                $height = (float)$product->height;
+                $width = (float)$product->width;
+                $depth = (float)$product->depth;
+                $realWeight = (float)$product->weight * $unitsInPackage;
 
-                $quotes = $this->quoteByWeight($packageWeight, $id_city, $packageValue);
+                $quotes = $this->quoteByWeightWithDetails($packageWeight, $id_city, $packageValue, $height, $width, $depth, $unitsInPackage, $realWeight);
 
                 $cheapest = null;
                 if ($quotes && count($quotes) > 0) {
@@ -393,7 +422,8 @@ class ShippingQuoteService
                 $id_product = $item['id_product'];
                 $qty = $item['qty'];
                 
-                $quotes = $this->quote($id_product, $id_city, $qty);
+                // Para NO agrupables, cotizar cada unidad individualmente
+                $quotes = $this->quoteWithDetails($id_product, $id_city, $qty);
 
                 $cheapest = null;
                 if ($quotes && count($quotes) > 0) {
@@ -432,15 +462,26 @@ class ShippingQuoteService
         foreach ($packages as $package) {
             $packageWeight = (float) $package['total_weight'];
 
-            // Calcular valor total del paquete
+            // Calcular valor total del paquete y dimensiones (usar las del producto más grande o promedio)
             $packageValue = 0.0;
+            $maxHeight = 0;
+            $maxWidth = 0;
+            $maxDepth = 0;
+            $totalRealWeight = 0;
+            
             foreach ($package['items'] as $item) {
                 $price = isset($item['price']) ? (float) $item['price'] : 0.0;
                 $packageValue += $price * $item['units_in_package'];
+                
+                $product = new Product($item['id_product']);
+                $maxHeight = max($maxHeight, (float)$product->height);
+                $maxWidth = max($maxWidth, (float)$product->width);
+                $maxDepth = max($maxDepth, (float)$product->depth);
+                $totalRealWeight += (float)$product->weight * $item['units_in_package'];
             }
 
-            // Cotizar este paquete como si fuera un producto individual
-            $quotes = $this->quoteByWeight($packageWeight, $id_city, $packageValue);
+            // Cotizar este paquete con detalles
+            $quotes = $this->quoteByWeightWithDetails($packageWeight, $id_city, $packageValue, $maxHeight, $maxWidth, $maxDepth, count($package['items']), $totalRealWeight);
 
             $cheapest = null;
             if ($quotes && count($quotes) > 0) {
@@ -490,7 +531,101 @@ class ShippingQuoteService
     }
 
     /**
-     * Cotiza un peso específico (para paquetes agrupados)
+     * Cotiza un peso específico con detalles completos por transportadora
+     * Incluye: peso real, peso volumétrico, flete, empaque, seguro, total
+     */
+    private function quoteByWeightWithDetails($weight, $id_city, $declaredValue = 0.0, $height = 0, $width = 0, $depth = 0, $units = 1, $realWeight = 0)
+    {
+        if ((int)$id_city <= 0) {
+            return [];
+        }
+
+        $id_city = (int) $id_city;
+        $weight = (float) $weight;
+        $declaredValue = (float) $declaredValue;
+
+        $carriersWithCoverage = $this->getCarriersWithCityCoverage($id_city);
+
+        if (!$carriersWithCoverage) {
+            return [];
+        }
+
+        $quotes = [];
+
+        foreach ($carriersWithCoverage as $carrier) {
+            try {
+                $id_carrier = (int) $carrier['id_carrier'];
+                $type = $carrier['type'];
+                
+                // Obtener factor volumétrico de cada transportadora
+                $kgVol = Db::getInstance()->getRow("
+                    SELECT value_number
+                    FROM " . _DB_PREFIX_ . "shipping_config
+                    WHERE name = 'Peso volumetrico'
+                    AND id_carrier = " . (int) $id_carrier . "
+                ");
+
+                if (!$kgVol || !isset($kgVol['value_number'])) {
+                    $kgVol = ['value_number' => 5000];
+                } else {
+                    $kgVol['value_number'] = (int) $kgVol['value_number'];
+                }
+                
+                // Calcular peso volumétrico específico para esta transportadora
+                $volumetricWeight = 0;
+                if ($height > 0 && $width > 0 && $depth > 0) {
+                    $volumetricWeight = $this->weightCalc->volumetricWeight($depth, $width, $height, $kgVol['value_number']);
+                    $volumetricWeight *= $units; // Multiplicar por unidades en el paquete
+                }
+                
+                // Peso facturable es el mayor entre real y volumétrico
+                $billableWeight = max($realWeight, $volumetricWeight);
+
+                $shippingCost = null;
+                
+                if ($type === CarrierRateTypeService::RATE_TYPE_PER_KG) {
+                    $shippingCost = $this->calculatePerKg($id_carrier, $id_city, $billableWeight);
+                } else {
+                    $shippingCost = $this->calculateRange($id_carrier, $id_city, $billableWeight);
+                }
+
+                if ($shippingCost === null) {
+                    continue;
+                }
+
+                $packagingCost = $this->calculatePackagingCost($shippingCost);
+                $insuranceCost = $this->calculateInsuranceCost($id_carrier, $type, $billableWeight, $declaredValue);
+
+                $totalPrice = $shippingCost + $packagingCost + $insuranceCost;
+
+                $quotes[] = [
+                    'carrier' => $carrier['name'],
+                    'type' => $type,
+                    'price' => $totalPrice,
+                    'peso_real' => round($realWeight, 2),
+                    'peso_volumetrico' => round($volumetricWeight, 2),
+                    'peso_facturable' => round($billableWeight, 2),
+                    'flete' => round($shippingCost, 2),
+                    'empaque' => round($packagingCost, 2),
+                    'seguro' => round($insuranceCost, 2),
+                    'total' => round($totalPrice, 2),
+                    'factor_volumetrico' => $kgVol['value_number']
+                ];
+
+            } catch (Exception $e) {
+                continue;
+            }
+        }
+
+        usort($quotes, function ($a, $b) {
+            return $a['price'] <=> $b['price'];
+        });
+
+        return $quotes;
+    }
+
+    /**
+     * Cotiza un peso específico (para paquetes agrupados) - Método legacy
      */
     private function quoteByWeight($weight, $id_city, $declaredValue = 0.0)
     {
@@ -620,8 +755,9 @@ class ShippingQuoteService
     /**
      * Obtiene el factor volumétrico MÍNIMO de todos los carriers
      * (Factor menor = peso volumétrico mayor = cálculo más conservador)
+     * Esto asegura que los paquetes respeten el límite de 60 kg en TODAS las transportadoras
      */
-    private function getMaxVolumetricFactor()
+    private function getMinVolumetricFactor()
     {
         $result = Db::getInstance()->getRow("
             SELECT MIN(CAST(value_number AS UNSIGNED)) as min_factor
@@ -631,6 +767,24 @@ class ShippingQuoteService
 
         if ($result && isset($result['min_factor']) && $result['min_factor'] > 0) {
             return (int) $result['min_factor'];
+        }
+
+        return 4000; // Default conservador
+    }
+
+    /**
+     * Obtiene el factor volumétrico MÁXIMO de todos los carriers (legacy)
+     */
+    private function getMaxVolumetricFactor()
+    {
+        $result = Db::getInstance()->getRow("
+            SELECT MAX(CAST(value_number AS UNSIGNED)) as max_factor
+            FROM " . _DB_PREFIX_ . "shipping_config
+            WHERE name = 'Peso volumetrico' AND CAST(value_number AS UNSIGNED) > 0
+        ");
+
+        if ($result && isset($result['max_factor']) && $result['max_factor'] > 0) {
+            return (int) $result['max_factor'];
         }
 
         return 5000; // Default
