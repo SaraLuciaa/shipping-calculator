@@ -155,6 +155,6 @@ class IndividualGroupablePackageService
         }
 
         // (cm³) / factor = kg
-        return ($height * $width * $depth) / $factor;
+        return (($height/100) * ($width/100) * ($depth/100)) / $factor;
     }
 }
