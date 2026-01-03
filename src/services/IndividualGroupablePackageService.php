@@ -15,11 +15,12 @@
 class IndividualGroupablePackageService
 {
     private $maxWeightPerPackage = 60.0;  // kg (se obtiene de config)
+    private $weightCalc;
 
     /**
      * Constructor
      */
-    public function __construct()
+    public function __construct($weightCalc = null)
     {
         // Obtener peso máximo configurado desde BD
         $config = Db::getInstance()->getRow("
@@ -31,54 +32,28 @@ class IndividualGroupablePackageService
         if ($config && isset($config['value_number'])) {
             $this->maxWeightPerPackage = (float)$config['value_number'];
         }
+        
+        // Inyectar WeightCalculatorService
+        if ($weightCalc) {
+            $this->weightCalc = $weightCalc;
+        } else {
+            require_once _PS_MODULE_DIR_ . 'shipping_calculator/src/services/WeightCalculatorService.php';
+            $this->weightCalc = new WeightCalculatorService();
+        }
     }
 
     /**
      * Procesa productos individuales agrupables y genera paquetes.
+     * Los paquetes se arman con restricción de max_units_per_package Y peso máximo.
+     * Se usa el factor volumétrico MÁXIMO para que los paquetes sean suficientemente pequeños
+     * para que TODAS las transportadoras puedan cotizarlos.
      *
-     * @param array $individualGroupableProducts - Lista de productos con estructura:
-     *   [
-     *     {
-     *       'id_product': int,
-     *       'quantity': int,
-     *       'max_units_per_package': int,
-     *       'weight_unit': float (kg),
-     *       'height': float (cm),
-     *       'width': float (cm),
-     *       'depth': float (cm),
-     *       'name': string,
-     *       'price': float
-     *     },
-     *     ...
-     *   ]
-     * @param float $volumetricFactor - Factor volumétrico máximo
+     * @param array $individualGroupableProducts - Lista de productos
+     * @param int $maxVolumetricFactor - Factor volumétrico máximo (más alto)
      *
-     * @return array - Estructura:
-     *   {
-     *     'individual_packages': [
-     *       {
-     *         'package_id': string,
-     *         'package_type': 'individual_grouped',
-     *         'id_product': int,
-     *         'product_name': string,
-     *         'total_weight': float,
-     *         'units_in_package': int,
-     *         'price_per_unit': float
-     *       },
-     *       ...
-     *     ],
-     *     'oversized_products': [
-     *       {
-     *         'id_product': int,
-     *         'quantity': int,
-     *         'reason': 'unit_exceeds_max_weight',
-     *         'unit_weight': float
-     *       },
-     *       ...
-     *     ]
-     *   }
+     * @return array - Estructura con 'individual_packages' y 'oversized_products'
      */
-    public function buildIndividualPackages(array $individualGroupableProducts, $volumetricFactor = 5000.0)
+    public function buildIndividualPackages(array $individualGroupableProducts, $maxVolumetricFactor)
     {
         $packages = [];
         $packageIdCounter = 1;
@@ -95,11 +70,11 @@ class IndividualGroupablePackageService
             $name = $product['name'];
             $price = isset($product['price']) ? (float)$product['price'] : 0.0;
 
-            // Calcular peso volumétrico unitario
-            $volumetricWeightUnit = $this->calculateVolumetricWeight($height, $width, $depth, $volumetricFactor);
-
-            // Peso máximo por unidad (el mayor entre real y volumétrico)
-            $billableWeightUnit = max($weightUnit, $volumetricWeightUnit);
+            // Calcular peso volumétrico unitario usando WeightCalculatorService y factor MÁXIMO
+            $volumetricWeightUnit = $this->weightCalc->volumetricWeight($depth, $width, $height, $maxVolumetricFactor);
+            
+            // Peso facturable unitario (el mayor entre real y volumétrico)
+            $billableWeightUnit = $this->weightCalc->billableWeight($weightUnit, $volumetricWeightUnit);
             
             // CASO ESPECIAL: Si una sola unidad excede el peso máximo
             if ($billableWeightUnit > $this->maxWeightPerPackage) {
@@ -116,7 +91,7 @@ class IndividualGroupablePackageService
             $remainingUnits = $quantity;
 
             while ($remainingUnits > 0) {
-                // Calcular cuántas unidades caben por peso
+                // Calcular cuántas unidades caben por PESO (usando factor máximo)
                 $unitsByWeight = (int)floor($this->maxWeightPerPackage / $billableWeightUnit);
                 
                 // Aplicar restricción de max_units_per_package
@@ -128,10 +103,15 @@ class IndividualGroupablePackageService
                     'package_type' => 'individual_grouped',
                     'id_product' => $id_product,
                     'product_name' => $name,
-                    'total_weight' => $unitsForThisPackage * $billableWeightUnit,
                     'units_in_package' => $unitsForThisPackage,
                     'real_weight_unit' => $weightUnit,
                     'volumetric_weight_unit' => $volumetricWeightUnit,
+                    'total_weight_real' => $weightUnit * $unitsForThisPackage,
+                    'total_weight_volumetric' => $volumetricWeightUnit * $unitsForThisPackage,
+                    'total_weight' => $billableWeightUnit * $unitsForThisPackage,
+                    'height' => $height,
+                    'width' => $width,
+                    'depth' => $depth,
                     'price_per_unit' => $price
                 ];
 
@@ -145,16 +125,4 @@ class IndividualGroupablePackageService
         ];
     }
 
-    /**
-     * Calcula el peso volumétrico de un producto
-     */
-    private function calculateVolumetricWeight($height, $width, $depth, $factor)
-    {
-        if ($height <= 0 || $width <= 0 || $depth <= 0 || $factor <= 0) {
-            return 0.0;
-        }
-
-        // (cm³) / factor = kg
-        return (($height/100) * ($width/100) * ($depth/100)) / $factor;
-    }
 }

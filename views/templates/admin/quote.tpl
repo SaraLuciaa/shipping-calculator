@@ -134,7 +134,7 @@
         {foreach $grouped_packages as $idx => $package}
           <div class="panel panel-default">
             <div class="panel-heading">
-              <strong>Paquete agrupado {$idx + 1}</strong> — Peso total: {$package.total_weight|number_format:2:",":"."} kg
+              <strong>Paquete agrupado {$idx + 1}</strong>
             </div>
             <div class="panel-body">
               {* Tabla de detalles de productos en el paquete *}
@@ -231,7 +231,7 @@
         {foreach $individual_grouped_packages as $package}
           <div class="panel panel-default">
             <div class="panel-heading">
-              <strong>Paquete individual {$package@iteration}</strong> — Peso total: <strong>{$package.total_weight|number_format:2:",":"."} kg</strong>
+              <strong>Paquete individual {$package@iteration}</strong>
               {if $package.units_in_package}
                 — {$package.units_in_package} unidad(es)
               {/if}
