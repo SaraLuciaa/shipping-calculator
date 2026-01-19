@@ -1053,13 +1053,14 @@ class ShippingQuoteService
             }
 
             // PASO 2: Buscar el rango activo que contenga el peso
+            // Lógica: límite inferior exclusivo, límite superior inclusivo
             $rows = Db::getInstance()->executeS("
                 SELECT price, min_weight, max_weight
                 FROM "._DB_PREFIX_."shipping_range_rate
                 WHERE id_carrier = ".$id_carrier."
                 AND id_city = ".$id_city."
                 AND active = 1
-                AND min_weight <= ".$weight."
+                AND min_weight < ".$weight."
                 AND (max_weight = 0 OR max_weight >= ".$weight.")
                 ORDER BY min_weight DESC
             ");
