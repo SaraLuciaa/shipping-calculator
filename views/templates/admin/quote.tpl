@@ -203,7 +203,7 @@
                       {foreach $package.quotes as $q}
                         <tr>
                           <td>{$q.carrier}</td>
-                          <td>{if $q.type == 'per_kg'}Por Kg{else}Por Rangos{/if}</td>
+                          <td>{if $q.type == 'per_kg'}Por Kg{else if $q.type == 'Por Kg'}Por Kg{else if $q.type == 'Por Rangos'}Por Rangos{else}Por Rangos{/if}</td>
                           <td>{if isset($q.peso_real)}{$q.peso_real|number_format:2:",":"."}{else}{$q.weight_real|default:0|number_format:2:",":"."}{/if} kg</td>
                           <td>{if isset($q.peso_volumetrico)}{$q.peso_volumetrico|number_format:2:",":"."}{else}{$q.weight_vol|default:0|number_format:2:",":"."}{/if} kg</td>
                           <td>$ {if isset($q.flete)}{$q.flete|number_format:0:",":"."}{else}{$q.shipping_cost|number_format:0:",":"."}{/if}</td>

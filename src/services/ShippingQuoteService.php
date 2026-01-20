@@ -463,26 +463,64 @@ class ShippingQuoteService
         foreach ($packages as $package) {
             $packageWeight = (float) $package['total_weight'];
 
-            // Calcular valor total del paquete y dimensiones (usar las del producto más grande o promedio)
+            // Calcular valor total del paquete y preparar items individuales
             $packageValue = 0.0;
-            $maxHeight = 0;
-            $maxWidth = 0;
-            $maxDepth = 0;
             $totalRealWeight = 0;
+            $packageItems = []; // Array de items individuales con dimensiones
+            $itemsDetailed = []; // Para mostrar resumen
+            
+            // Obtener factor volumétrico máximo para cálculo de display
+            $maxVolumetricFactor = $this->getMaxVolumetricFactor();
             
             foreach ($package['items'] as $item) {
                 $price = isset($item['price']) ? (float) $item['price'] : 0.0;
                 $packageValue += $price * $item['units_in_package'];
                 
                 $product = new Product($item['id_product']);
-                $maxHeight = max($maxHeight, (float)$product->height);
-                $maxWidth = max($maxWidth, (float)$product->width);
-                $maxDepth = max($maxDepth, (float)$product->depth);
-                $totalRealWeight += (float)$product->weight * $item['units_in_package'];
+                $itemName = $this->getProductName($item['id_product'], $lang_id);
+                
+                $realWeightUnit = (float)$product->weight;
+                $height = (float)$product->height;
+                $width = (float)$product->width;
+                $depth = (float)$product->depth;
+                $units = $item['units_in_package'];
+                
+                $totalRealWeight += $realWeightUnit * $units;
+                
+                // Calcular peso volumétrico unitario con el factor máximo
+                $volumetricWeightUnit = 0;
+                if ($height > 0 && $width > 0 && $depth > 0) {
+                    $volumetricWeightUnit = $this->weightCalc->volumetricWeight($depth, $width, $height, $maxVolumetricFactor);
+                }
+                
+                // Agregar cada unidad individual al array para cálculo por transportadora
+                for ($i = 0; $i < $units; $i++) {
+                    $packageItems[] = [
+                        'id_product' => $item['id_product'],
+                        'height' => $height,
+                        'width' => $width,
+                        'depth' => $depth,
+                        'weight' => $realWeightUnit,
+                        'name' => $itemName
+                    ];
+                }
+                
+                // Información detallada del item para mostrar
+                $itemsDetailed[] = [
+                    'id_product' => $item['id_product'],
+                    'name' => $itemName,
+                    'units_in_package' => $units,
+                    'real_weight_unit' => $realWeightUnit,
+                    'volumetric_weight_unit' => $volumetricWeightUnit,
+                    'dimensions' => sprintf('%scm × %scm × %scm', $depth, $width, $height),
+                    'total_real_weight' => $realWeightUnit * $units,
+                    'total_volumetric_weight' => $volumetricWeightUnit * $units,
+                    'price_unit' => $price
+                ];
             }
 
-            // Cotizar este paquete con detalles
-            $quotes = $this->quoteByWeightWithDetails($packageWeight, $id_city, $packageValue, $maxHeight, $maxWidth, $maxDepth, count($package['items']), $totalRealWeight);
+            // Cotizar este paquete - cada transportadora calculará con su factor
+            $quotes = $this->quoteGroupedPackageDetailed($id_city, $packageValue, $totalRealWeight, $packageItems);
 
             $cheapest = null;
             if ($quotes && count($quotes) > 0) {
@@ -492,35 +530,21 @@ class ShippingQuoteService
                 ];
             }
 
-            // Construir descripción de contenido del paquete con detalles de pesos
             $itemsSummary = [];
-            $itemsDetailed = [];
-
-            foreach ($package['items'] as $item) {
-                $itemName = $this->getProductName($item['id_product'], $lang_id);
+            foreach ($itemsDetailed as $item) {
                 $itemsSummary[] = sprintf(
                     "%s (%d unidades)",
-                    $itemName,
+                    $item['name'],
                     $item['units_in_package']
                 );
-
-                // Crear estructura detallada para cada item con pesos
-                $itemsDetailed[] = [
-                    'id_product' => $item['id_product'],
-                    'name' => $itemName,
-                    'units_in_package' => $item['units_in_package'],
-                    'real_weight_unit' => isset($item['real_weight_unit']) ? (float) $item['real_weight_unit'] : 0,
-                    'volumetric_weight_unit' => isset($item['volumetric_weight_unit']) ? (float) $item['volumetric_weight_unit'] : 0,
-                    'total_real_weight' => isset($item['real_weight_unit']) ? (float) $item['real_weight_unit'] * $item['units_in_package'] : 0,
-                    'total_volumetric_weight' => isset($item['volumetric_weight_unit']) ? (float) $item['volumetric_weight_unit'] * $item['units_in_package'] : 0,
-                    'price_unit' => isset($item['price']) ? (float) $item['price'] : 0.0
-                ];
             }
 
             $results[] = [
                 'package_id' => $package['package_id'],
                 'package_type' => 'grouped',
                 'total_weight' => $packageWeight,
+                'total_real_weight' => $totalRealWeight,
+                'items_count' => count($packageItems),
                 'items_summary' => implode(", ", $itemsSummary),
                 'items_detail' => $itemsDetailed,
                 'cheapest' => $cheapest,
@@ -529,6 +553,107 @@ class ShippingQuoteService
         }
 
         return $results;
+    }
+
+    /**
+     * Cotiza un paquete agrupado calculando detalles por cada transportadora
+     * Muestra operaciones detalladas de cálculo de peso volumétrico
+     */
+    private function quoteGroupedPackageDetailed($id_city, $declaredValue, $totalRealWeight, $packageItems)
+    {
+        if ((int)$id_city <= 0) {
+            return [];
+        }
+
+        $id_city = (int) $id_city;
+        $declaredValue = (float) $declaredValue;
+        $totalRealWeight = (float) $totalRealWeight;
+
+        $carriersWithCoverage = $this->getCarriersWithCityCoverage($id_city);
+
+        if (!$carriersWithCoverage) {
+            return [];
+        }
+
+        $quotes = [];
+
+        foreach ($carriersWithCoverage as $carrier) {
+            try {
+                $id_carrier = (int) $carrier['id_carrier'];
+                $type = $carrier['type'];
+                
+                // Obtener factor volumétrico de ESTA transportadora
+                $kgVol = Db::getInstance()->getRow("
+                    SELECT value_number
+                    FROM " . _DB_PREFIX_ . "shipping_config
+                    WHERE name = 'Peso volumetrico'
+                    AND id_carrier = " . (int) $id_carrier . "
+                ");
+
+                if (!$kgVol || !isset($kgVol['value_number'])) {
+                    $kgVol['value_number'] = 5000;
+                } else {
+                    $kgVol['value_number'] = (int) $kgVol['value_number'];
+                }
+                
+                // Calcular peso volumétrico sumando CADA ITEM individual
+                $totalVolumetricWeight = 0;
+                
+                foreach ($packageItems as $item) {
+                    $height = $item['height'];
+                    $width = $item['width'];
+                    $depth = $item['depth'];
+                    
+                    if ($height > 0 && $width > 0 && $depth > 0) {
+                        $volWeightUnit = $this->weightCalc->volumetricWeight($depth, $width, $height, $kgVol['value_number']);
+                        $totalVolumetricWeight += $volWeightUnit;
+                    }
+                }
+                
+                // Peso facturable es el mayor entre real y volumétrico total
+                $billableWeight = max($totalRealWeight, $totalVolumetricWeight);
+
+                $shippingCost = null;
+                
+                if ($type === CarrierRateTypeService::RATE_TYPE_PER_KG) {
+                    $shippingCost = $this->calculatePerKg($id_carrier, $id_city, $billableWeight);
+                } else {
+                    $shippingCost = $this->calculateRange($id_carrier, $id_city, $billableWeight);
+                }
+
+                if ($shippingCost === null) {
+                    continue;
+                }
+
+                $packagingCost = $this->calculatePackagingCost($shippingCost);
+                $insuranceCost = $this->calculateInsuranceCost($id_carrier, $type, $billableWeight, $declaredValue);
+
+                $totalPrice = $shippingCost + $packagingCost + $insuranceCost;
+
+                $quotes[] = [
+                    'carrier' => $carrier['name'],
+                    'type' => $type === 'per_kg' ? 'Por Kg' : 'Por Rangos',
+                    'price' => $totalPrice,
+                    'peso_real' => round($totalRealWeight, 2),
+                    'peso_volumetrico' => round($totalVolumetricWeight, 2),
+                    'peso_facturable' => round($billableWeight, 2),
+                    'flete' => round($shippingCost, 2),
+                    'empaque' => round($packagingCost, 2),
+                    'seguro' => round($insuranceCost, 2),
+                    'total' => round($totalPrice, 2),
+                    'factor_volumetrico' => $kgVol['value_number']
+                ];
+
+            } catch (Exception $e) {
+                continue;
+            }
+        }
+
+        usort($quotes, function ($a, $b) {
+            return $a['price'] <=> $b['price'];
+        });
+
+        return $quotes;
     }
 
     /**
